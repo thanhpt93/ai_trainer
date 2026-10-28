@@ -131,6 +131,25 @@ class EvaluationReport(BaseModel):
     evaluated_at: str
 
 
+class ClassProbability(BaseModel):
+    class_name: str
+    probability: float
+
+
+class PredictRequest(BaseModel):
+    image_path: Optional[str] = None
+    image_base64: Optional[str] = None
+
+
+class PredictResponse(BaseModel):
+    predicted_class: str
+    confidence: float
+    top_probabilities: List[ClassProbability]
+    inference_time_ms: float
+    device: str
+    model_architecture: str
+
+
 class TrainingJobResponse(BaseModel):
     id: str
     name: Optional[str] = None

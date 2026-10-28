@@ -3,6 +3,7 @@ import sys
 import time
 import shutil
 import tempfile
+import base64
 from pathlib import Path
 import pytest
 from PIL import Image
@@ -180,7 +181,7 @@ def test_end_to_end_training_and_export(synthetic_classification_env):
     """
     Real End-to-End Test:
     Create Job -> Start Worker Subprocess -> Monitor completion ->
-    Verify Checkpoints & Metrics -> Verify Evaluation -> Export to ONNX.
+    Verify Checkpoints & Metrics -> Verify Evaluation -> Interactive Inference -> Export to ONNX.
     """
     env = synthetic_classification_env
 
@@ -256,7 +257,31 @@ def test_end_to_end_training_and_export(synthetic_classification_env):
     assert "confusion_matrix" in eval_data
     assert len(eval_data["per_class_metrics"]) == 2
 
-    # 6. Test Model Export to ONNX
+    # 6. Test Interactive Inference / Predict with image file path & base64
+    sample_img_path = Path(env["temp_dir"]) / "img_0_cat.jpg"
+    pred_resp = client.post(
+        f"/api/v1/training/jobs/{job_id}/predict",
+        json={"image_path": str(sample_img_path)},
+    )
+    assert pred_resp.status_code == 200
+    pred_data = pred_resp.json()
+    assert "predicted_class" in pred_data
+    assert "confidence" in pred_data
+    assert len(pred_data["top_probabilities"]) == 2
+    assert pred_data["inference_time_ms"] > 0
+    assert pred_data["model_architecture"] == "resnet18"
+
+    # Also test base64 prediction
+    with open(sample_img_path, "rb") as f:
+        b64_str = base64.b64encode(f.read()).decode("utf-8")
+    pred_b64_resp = client.post(
+        f"/api/v1/training/jobs/{job_id}/predict",
+        json={"image_base64": f"data:image/jpeg;base64,{b64_str}"},
+    )
+    assert pred_b64_resp.status_code == 200
+    assert pred_b64_resp.json()["predicted_class"] in ["Cat", "Dog"]
+
+    # 7. Test Model Export to ONNX
     export_payload = {
         "format": "ONNX",
         "input_size": 64,
@@ -270,7 +295,7 @@ def test_end_to_end_training_and_export(synthetic_classification_env):
     assert Path(export_data["manifest_path"]).exists()
     assert export_data["verified_with_inference"] is True
 
-    # 7. Check Model Registry
+    # 8. Check Model Registry
     models_resp = client.get(f"/api/v1/models?project_id={env['project_id']}")
     assert models_resp.status_code == 200
     registered = models_resp.json()

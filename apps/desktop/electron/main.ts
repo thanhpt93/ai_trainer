@@ -9,9 +9,14 @@ const BACKEND_PORT = process.env.NOVA_PORT || '8000';
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 
 function findPythonExecutable(): string {
-  // Check known conda environment paths first (prefer 'api' env with PyTorch)
+  if (process.env.PYTHON_PATH) {
+    return process.env.PYTHON_PATH;
+  }
+  // Check known conda environment paths first (prefer 'lcd' or 'api' env with PyTorch)
   const userHome = process.env.USERPROFILE || process.env.HOME || '';
   const possiblePaths = [
+    path.join(userHome, 'miniconda3', 'envs', 'lcd', 'python.exe'),
+    path.join(userHome, 'anaconda3', 'envs', 'lcd', 'python.exe'),
     path.join(userHome, 'miniconda3', 'envs', 'api', 'python.exe'),
     path.join(userHome, 'anaconda3', 'envs', 'api', 'python.exe'),
     path.join(userHome, 'miniconda3', 'python.exe'),

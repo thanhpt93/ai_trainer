@@ -1,9 +1,11 @@
-# NOVA AI Trainer (Phase 2: Annotation Studio)
+# NOVA AI Trainer (Phase 3: Classification Training & Evaluation Studio)
 
-> **Phase 2: NOVA AI Trainer Annotation Studio**  
-> Standalone desktop application for computer vision dataset management, interactive image annotation, classification, bounding box labeling, multi-format dataset export, and future training pipeline integration.
+> **NOVA AI Trainer**  
+> Standalone desktop application for computer vision dataset management, interactive image annotation, deep learning model training, interactive inference playground, multi-format dataset export, and ONNX deployment packaging.
 
----\n## 1. Overview & Architecture
+---
+
+## 1. Overview & Architecture
 
 NOVA AI Trainer is structured with strict separation of concerns across presentation, local API services, domain logic, worker processes, and storage:
 
@@ -13,19 +15,20 @@ ai_trainer/
 │   └── desktop/               # Electron + React 18 + TypeScript + Vite + Zustand + Tailwind CSS
 │       ├── electron/          # Main process, preload bridge, backend lifecycle, IPC
 │       └── src/               # React UI, pages, components, layout, features, services
-│           └── features/
-│               └── annotation/ # Annotation Studio: Canvas, Toolbar, Properties, ImageList, Modals
+│           ├── features/
+│           │   └── annotation/ # Annotation Studio: Canvas, Toolbar, Properties, ImageList, Modals
+│           └── pages/          # Dashboard, Projects, Datasets, Training, Monitoring, Evaluation
 ├── backend/                   # Python FastAPI Backend
 │   ├── app/
-│   │   ├── api/v1/            # REST endpoints (health, projects, datasets, labels, annotations)
+│   │   ├── api/v1/            # REST endpoints (health, projects, datasets, labels, annotations, training, models)
 │   │   ├── core/              # Config, loopback binding, paths
 │   │   ├── db/                # SQLite session, WAL mode, foreign keys, Base
-│   │   ├── domain/            # Models: Project, Dataset, ImageRecord, ProjectLabel, ImageAnnotation, ...
-│   │   ├── schemas/           # Pydantic v2 schemas: Project, Dataset, Label, Annotation, Export
-│   │   ├── services/          # ProjectService, DatasetService, LabelService, AnnotationService, ExportService
-│   │   ├── workers/           # Subprocess worker contracts for future isolated training
+│   │   ├── domain/            # Models: Project, Dataset, ImageRecord, ProjectLabel, ImageAnnotation, TrainingJob, ModelArtifact
+│   │   ├── schemas/           # Pydantic v2 schemas: Project, Dataset, Label, Annotation, TrainingJob, Export, Predict
+│   │   ├── services/          # ProjectService, DatasetService, LabelService, AnnotationService, ExportService, TrainingManager, ModelCatalogService
+│   │   ├── workers/           # Subprocess worker contracts for isolated background training
 │   │   └── adapters/          # Extensible task, dataset, model, and export interfaces
-│   └── tests/                 # Automated pytest test suite (15 unit & integration tests)
+│   └── tests/                 # Automated pytest test suite (21 unit & integration tests)
 ├── docs/                      # Architecture, domain models, API, and roadmap documentation
 ├── scripts/                   # Convenient Windows launcher scripts
 └── data/                      # User data workspace
@@ -33,42 +36,26 @@ ai_trainer/
 
 ---
 
-## 2. Phase 2 Features: Annotation Studio
+## 2. Core Features
 
-The Annotation Studio provides a professional, desktop-first computer vision labeling environment:
+### 2.1 Annotation Studio
+- **Four-Panel Workspace Layout**: Dataset image thumbnails, canvas with pan/zoom/fit, properties panel with single/multi-label and bounding box controls, top toolbar with undo/redo.
+- **Productivity Shortcuts**: Quick navigation, labeling hotkeys `1`–`9`, `Ctrl+S`, `Ctrl+Z`, `Spacebar` pan.
+- **Multi-Format Export**: YOLO, COCO 1.0, Pascal VOC, CSV, JSON.
 
-1. **Four-Panel Workspace Layout**:
-   - **Left Panel (Dataset & Image List):** Real-time progress bar, completion percentage, jump to next unannotated image, quick status filter tabs (`All`, `Unannotated`, `Annotated`, `Needs Review`, `Invalid`), image search, and paginated thumbnail grid.
-   - **Center Panel (Interactive Canvas):** Hardware-accelerated zoom (20% to 500%), pan (middle click or Spacebar drag), aspect-ratio fit, live coordinates mapping between screen pixels and normalized image coordinates `[0, 1]`, and smooth bounding box drawing.
-   - **Right Panel (Properties Panel):**
-     - *Classification:* Single-label or multi-label modes with radio/checkbox toggles and active label assignment.
-     - *Object Detection:* Object count, per-box coordinate displays, label assignment dropdown, deletion, and clear all.
-     - *Image State:* Negative image toggle (confirmed target-absent background), quality control review flag, and annotator notes.
-   - **Top Toolbar:** Project and dataset contextual breadcrumbs, task type indicator, previous/next image navigation, tool switcher (Select `V` vs Draw `B`), Undo / Redo history, live save status, Label Manager modal, and Dataset Export modal.
+### 2.2 Deep Learning Training Engine (Phase 3)
+- **Model Catalog**: ResNet-18, ResNet-50, MobileNetV3-Small, MobileNetV3-Large, EfficientNet-B0 with customizable classification heads.
+- **Isolated Worker Processes**: Background training runs in a detached subprocess to ensure UI responsiveness.
+- **Live Telemetry & Logs**: Real-time training loss, validation accuracy curves, epoch timings, and worker console streaming.
+- **Cooperative Cancellation & Checkpointing**: Gracefully stops jobs and retains the best checkpoint weights.
 
-2. **Productivity Keyboard Shortcuts**:
-   - `Ctrl+S` / `Cmd+S`: Save annotations
-   - `Ctrl+Z`: Undo annotation action
-   - `Ctrl+Y` / `Ctrl+Shift+Z`: Redo annotation action
-   - `A` / `D` or `ArrowLeft` / `ArrowRight`: Navigate to previous / next image
-   - `Delete` / `Backspace`: Delete selected bounding box
-   - `Escape`: Cancel drawing or deselect active box
-   - `V`: Switch to Select / Move tool
-   - `B`: Switch to Bounding Box Draw tool
-   - `1` – `9`: Quick-select class label by index
-   - `Spacebar + Drag` / Middle Click: Pan canvas
-
-3. **Label / Class Management**:
-   - Create, edit, and delete classes with customizable color palettes.
-   - Unique case-insensitive label names per project.
-   - Referential integrity protection: prevents accidental deletion of labels currently referenced by annotations (HTTP 409 Conflict).
-
-4. **Multi-Format Dataset Export**:
-   - **YOLO Format:** Normalized bounding boxes in `labels/{name}.txt` with `data.yaml` class mapping and split configuration.
-   - **COCO Format:** Standard COCO 1.0 JSON format (`images`, `categories`, `annotations`).
-   - **Pascal VOC Format:** XML files (`<annotation><object><bndbox>...`) per image.
-   - **CSV & JSON:** Tabular and structured annotation manifests.
-   - Supports optional image copying into the export bundle.
+### 2.3 Evaluation Studio & Interactive Inference Playground
+- **Benchmark Evaluation**: Confusion matrix, per-class metrics (Precision, Recall, F1, Support), and misclassified sample inspector.
+- **Interactive Model Inference Playground**: Test model predictions on any new input image:
+  - Drag & drop or select an image file from disk (JPEG, PNG, WEBP, BMP).
+  - Or input a direct filesystem path (with one-click sample shortcuts like `images/dog_01.jpg`, `images/cat_01.jpg`).
+  - View real-time predictions: top class badge, confidence score, full probability distribution breakdown, and latency (ms).
+- **Deployment Packaging**: Export best checkpoints to verified ONNX packages with smoke inference validation and SHA-256 manifests.
 
 ---
 
@@ -85,10 +72,11 @@ The Annotation Studio provides a professional, desktop-first computer vision lab
 
 ### 4.1 Python Backend Dependencies
 
-Using Conda or virtual environment:
+Using Conda (`lcd` or `ai` environment):
 
 ```bash
-pip install fastapi uvicorn pydantic sqlalchemy aiosqlite pillow psutil pytest httpx
+conda activate lcd
+pip install fastapi uvicorn pydantic sqlalchemy aiosqlite pillow psutil pytest httpx onnx onnxruntime
 ```
 
 ### 4.2 Desktop Frontend Dependencies
@@ -96,6 +84,7 @@ pip install fastapi uvicorn pydantic sqlalchemy aiosqlite pillow psutil pytest h
 ```bash
 cd apps/desktop
 npm install
+npm run build && npm run build:electron
 ```
 
 ---
@@ -104,13 +93,7 @@ npm install
 
 ### 5.1 Running Desktop Application (Integrated Mode)
 
-```bash
-# In apps/desktop
-npm run build && npm run build:electron
-call node_modules\.bin\electron.cmd dist-electron\main.js
-```
-
-Or run the convenient script from repository root:
+Double-click `scripts\run_desktop.bat` or run:
 
 ```bash
 scripts\run_desktop.bat
@@ -119,6 +102,8 @@ scripts\run_desktop.bat
 ### 5.2 Running Backend Standalone (for API Development)
 
 ```bash
+scripts\run_backend.bat
+# or:
 python -m backend.app.main --port 8000 --host 127.0.0.1
 ```
 
@@ -145,32 +130,13 @@ Run the complete test suite:
 pytest backend/tests -v
 ```
 
-All 15 automated tests cover:
+All 21 automated tests cover:
 - Health and system capability endpoints
 - Project CRUD, validation, and duplicate conflict checks
 - Label creation, updates, and reference protection
 - Image Classification and Object Detection annotation workflows
-- Negative image validation and coordinate bounds clamping
+- Hardware detection and vision model catalog
+- Classification training lifecycle, worker isolation, and cooperative cancellation
+- Real-time interactive model inference (`/jobs/{id}/predict` with local path & base64)
+- ONNX model packaging with smoke inference verification
 - Recursive dataset image folder scanning and corrupt image handling
-- Secure image file streaming and directory path safety
-
----
-
-## 7. Build Commands
-
-```bash
-cd apps/desktop
-npm run build             # Compiles React SPA with TypeScript into dist/
-npm run build:electron    # Compiles Electron main & preload into dist-electron/
-```
-
----
-
-## 8. Implementation Roadmap
-
-- **Phase 1 (Completed):** Foundation, desktop shell, project management, dataset import.
-- **Phase 2 (Completed):** Annotation data model, Annotation Studio, bounding boxes, labels, and exports.
-- **Phase 3 (Next):** Image Classification training pipeline (ResNet, MobileNet, EfficientNet).
-- **Phase 4:** Object Detection training pipeline (YOLOv8 / YOLOv11).
-- **Phase 5:** Evaluation, experiments, model registry, and export for NOVA Machine Vision Platform.
-- **Phase 6:** Segmentation, OCR, anomaly detection, keypoints, and distributed training.

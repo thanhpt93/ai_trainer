@@ -10,6 +10,8 @@ from backend.app.schemas.training_job import (
     DatasetValidationRequest,
     DatasetValidationResponse,
     EpochMetric,
+    PredictRequest,
+    PredictResponse,
 )
 from backend.app.schemas.model_artifact import (
     ModelCatalogItem,
@@ -140,3 +142,21 @@ def export_training_job_model(
 ):
     """Export the best trained checkpoint to a validated ONNX deployment package."""
     return TrainingManager.export_model_artifact(db, job_id, req)
+
+
+@router.post("/jobs/{job_id}/predict", response_model=PredictResponse)
+def predict_with_training_job_model(
+    job_id: str,
+    req: PredictRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Run interactive inference / prediction on an input test image
+    using the trained model weights.
+    """
+    return TrainingManager.run_inference(
+        db=db,
+        job_id=job_id,
+        image_path=req.image_path,
+        image_base64=req.image_base64,
+    )

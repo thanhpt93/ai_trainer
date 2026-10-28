@@ -6,11 +6,13 @@ echo ========================================================
 set PYTHONPATH=%~dp0..
 set NOVA_PORT=8000
 
-REM Check for Conda base or api environment python
-if exist "%USERPROFILE%\miniconda3\python.exe" (
-    "%USERPROFILE%\miniconda3\python.exe" -m backend.app.main --port %NOVA_PORT% --host 127.0.0.1
+REM Check for Conda lcd, api or base environment python
+if exist "%USERPROFILE%\miniconda3\envs\lcd\python.exe" (
+    "%USERPROFILE%\miniconda3\envs\lcd\python.exe" -m backend.app.main --port %NOVA_PORT% --host 127.0.0.1
 ) else if exist "%USERPROFILE%\miniconda3\envs\api\python.exe" (
     "%USERPROFILE%\miniconda3\envs\api\python.exe" -m backend.app.main --port %NOVA_PORT% --host 127.0.0.1
+) else if exist "%USERPROFILE%\miniconda3\python.exe" (
+    "%USERPROFILE%\miniconda3\python.exe" -m backend.app.main --port %NOVA_PORT% --host 127.0.0.1
 ) else (
     python -m backend.app.main --port %NOVA_PORT% --host 127.0.0.1
 )

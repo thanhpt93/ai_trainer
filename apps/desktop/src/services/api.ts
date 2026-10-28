@@ -31,6 +31,8 @@ import {
   ModelArtifact,
   ExportModelRequest,
   ExportModelResponse,
+  PredictRequest,
+  PredictResponse,
 } from '../types';
 
 let cachedBackendUrl: string | null = null;
@@ -323,6 +325,13 @@ export const api = {
 
   async exportTrainingJobModel(id: string, data: ExportModelRequest): Promise<ExportModelResponse> {
     return request<ExportModelResponse>(`/training/jobs/${id}/export`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async predictTrainingJob(id: string, data: PredictRequest): Promise<PredictResponse> {
+    return request<PredictResponse>(`/training/jobs/${id}/predict`, {
       method: 'POST',
       body: JSON.stringify(data),
     });

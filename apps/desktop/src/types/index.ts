@@ -474,6 +474,25 @@ export interface EvaluationReport {
   evaluated_at: string;
 }
 
+export interface ClassProbability {
+  class_name: string;
+  probability: number;
+}
+
+export interface PredictRequest {
+  image_path?: string;
+  image_base64?: string;
+}
+
+export interface PredictResponse {
+  predicted_class: string;
+  confidence: number;
+  top_probabilities: ClassProbability[];
+  inference_time_ms: number;
+  device: string;
+  model_architecture: string;
+}
+
 export interface ModelArtifact {
   id: string;
   name: string;

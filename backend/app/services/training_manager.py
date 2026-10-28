@@ -3,9 +3,14 @@ import sys
 import json
 import time
 import subprocess
+import base64
+import io
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
+import torch
+import torchvision.transforms as transforms
+from PIL import Image
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
@@ -22,13 +27,20 @@ from backend.app.schemas.training_job import (
     TrainingJobStatus,
     SplitConfig,
     TrainingHyperparameters,
+    PredictRequest,
+    PredictResponse,
+    ClassProbability,
 )
 from backend.app.schemas.model_artifact import (
     ExportModelRequest,
     ExportModelResponse,
 )
 from backend.app.services.classification_dataset_adapter import ClassificationDatasetAdapter
-from backend.app.services.model_catalog_service import ModelCatalogService
+from backend.app.services.model_catalog_service import (
+    ModelCatalogService,
+    IMAGENET_MEAN,
+    IMAGENET_STD,
+)
 
 
 def utc_now() -> datetime:
@@ -306,6 +318,109 @@ class TrainingManager:
                 except Exception:
                     pass
         return None
+
+    @classmethod
+    def run_inference(
+        cls,
+        db: Session,
+        job_id: str,
+        image_path: Optional[str] = None,
+        image_base64: Optional[str] = None,
+    ) -> PredictResponse:
+        """
+        Runs model inference on an input image using the trained checkpoint weights.
+        """
+        job = db.query(TrainingJob).filter(TrainingJob.id == job_id).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="Training job not found")
+
+        if not job.checkpoint_dir:
+            raise HTTPException(status_code=400, detail="Job has no checkpoint directory")
+
+        run_dir = Path(job.checkpoint_dir)
+        best_cp = run_dir / "best_checkpoint.pt"
+        if not best_cp.exists():
+            best_cp = run_dir / "latest_checkpoint.pt"
+        if not best_cp.exists():
+            raise HTTPException(status_code=400, detail="No valid checkpoint model file found for inference")
+
+        # Load input image
+        if image_base64:
+            if "," in image_base64:
+                image_base64 = image_base64.split(",", 1)[1]
+            try:
+                raw_bytes = base64.b64decode(image_base64)
+                img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid base64 image: {str(e)}")
+        elif image_path:
+            p = Path(image_path)
+            if not p.is_file():
+                raise HTTPException(status_code=400, detail=f"Image file not found: {image_path}")
+            try:
+                img = Image.open(p).convert("RGB")
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Cannot open image file: {str(e)}")
+        else:
+            raise HTTPException(status_code=400, detail="Either image_path or image_base64 must be provided")
+
+        # Load checkpoint and model
+        device = torch.device("cuda" if torch.cuda.is_available() and job.device == "cuda" else "cpu")
+        cp_data = torch.load(best_cp, map_location=device)
+        class_mapping = cp_data.get("class_mapping", [])
+        if not class_mapping:
+            raise HTTPException(status_code=400, detail="Model checkpoint does not contain class mapping")
+
+        model, _ = ModelCatalogService.load_checkpoint(
+            best_cp,
+            architecture=job.model_architecture or "resnet18",
+            num_classes=len(class_mapping),
+            device=device,
+        )
+        model.eval()
+
+        input_size = 224
+        if job.configuration_json:
+            try:
+                cfg = json.loads(job.configuration_json)
+                input_size = cfg.get("hyperparameters", {}).get("input_size", 224)
+            except Exception:
+                pass
+
+        transform = transforms.Compose([
+            transforms.Resize((input_size, input_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ])
+
+        start_time = time.time()
+        tensor = transform(img).unsqueeze(0).to(device)
+
+        with torch.no_grad():
+            outputs = model(tensor)
+            probs = torch.softmax(outputs, dim=1)[0].cpu().numpy()
+
+        inference_time_ms = round((time.time() - start_time) * 1000, 2)
+
+        top_probs = []
+        for item in class_mapping:
+            idx = item.get("index", 0)
+            cname = item.get("name", f"Class {idx}")
+            prob = float(probs[idx]) if idx < len(probs) else 0.0
+            top_probs.append(ClassProbability(class_name=cname, probability=round(prob, 4)))
+
+        top_probs.sort(key=lambda x: x.probability, reverse=True)
+        pred_class = top_probs[0].class_name if top_probs else "Unknown"
+        confidence = top_probs[0].probability if top_probs else 0.0
+
+        return PredictResponse(
+            predicted_class=pred_class,
+            confidence=confidence,
+            top_probabilities=top_probs,
+            inference_time_ms=inference_time_ms,
+            device=str(device),
+            model_architecture=job.model_architecture or "resnet18",
+        )
 
     @classmethod
     def export_model_artifact(
