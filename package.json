@@ -1,0 +1,26 @@
+{
+  "name": "nova-ai-trainer",
+  "version": "0.1.0",
+  "description": "NOVA AI Trainer - Desktop application for computer vision dataset management, annotation, and model training.",
+  "private": true,
+  "scripts": {
+    "dev:frontend": "npm --prefix apps/desktop run dev",
+    "dev:backend": "python -m backend.app.main --port 8000",
+    "build:frontend": "npm --prefix apps/desktop run build",
+    "build:electron": "npm --prefix apps/desktop run build:electron",
+    "build": "npm run build:frontend && npm run build:electron",
+    "start": "electron apps/desktop/dist-electron/main.js",
+    "test:backend": "pytest backend/tests -v",
+    "test": "npm run test:backend"
+  },
+  "keywords": [
+    "ai-trainer",
+    "machine-vision",
+    "deep-learning",
+    "dataset-management",
+    "electron",
+    "fastapi"
+  ],
+  "author": "NOVA Team",
+  "license": "MIT"
+}
