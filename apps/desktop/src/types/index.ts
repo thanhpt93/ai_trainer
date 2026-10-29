@@ -279,7 +279,7 @@ export interface PathValidationResult {
   estimated_image_count: number;
 }
 
-// Phase 3: Hardware, Training & Model Registry Types
+// Phase 3 & 4: Hardware, Training & Model Registry Types
 export interface CUDADeviceInfo {
   index: number;
   name: string;
@@ -345,6 +345,13 @@ export interface TrainingHyperparameters {
   horizontal_flip: boolean;
   rotation_degrees: number;
   color_jitter: boolean;
+  // Object Detection fields
+  confidence_threshold?: number;
+  iou_threshold?: number;
+  max_detections?: number;
+  min_size?: number;
+  max_size?: number;
+  grad_clip?: number;
 }
 
 export interface ClassItem {
@@ -359,6 +366,7 @@ export interface DatasetValidationResponse {
   is_valid: boolean;
   project_id: string;
   dataset_id: string;
+  task_type?: string;
   total_images: number;
   valid_annotated_images: number;
   unannotated_images: number;
@@ -371,6 +379,9 @@ export interface DatasetValidationResponse {
   val_count: number;
   test_count: number;
   split_manifest_id?: string | null;
+  total_bounding_boxes?: number;
+  boxes_per_class?: Record<string, number>;
+  images_per_class?: Record<string, number>;
   errors: string[];
   warnings: string[];
 }
@@ -429,7 +440,7 @@ export interface TrainingJobCreate {
 export interface EpochMetric {
   epoch: number;
   train_loss: number;
-  train_accuracy: number;
+  train_accuracy?: number | null;
   val_loss?: number | null;
   val_accuracy?: number | null;
   val_precision?: number | null;
@@ -438,6 +449,14 @@ export interface EpochMetric {
   learning_rate: number;
   duration_seconds: number;
   timestamp: string;
+  // Object Detection epoch metrics
+  val_map?: number | null;
+  val_map_50?: number | null;
+  val_map_75?: number | null;
+  loss_classifier?: number | null;
+  loss_box_reg?: number | null;
+  loss_objectness?: number | null;
+  loss_rpn_box_reg?: number | null;
 }
 
 export interface ConfusionMatrixData {
@@ -474,6 +493,60 @@ export interface EvaluationReport {
   evaluated_at: string;
 }
 
+export interface DetectedObject {
+  label_id?: string | null;
+  class_name: string;
+  class_index: number;
+  confidence: number;
+  box: [number, number, number, number]; // [x1, y1, x2, y2]
+  box_normalized: [number, number, number, number]; // [x_min, y_min, x_max, y_max]
+  matched_gt?: boolean | null;
+  iou?: number | null;
+}
+
+export interface DetectionSampleVisual {
+  image_id: string;
+  relative_path: string;
+  width: number;
+  height: number;
+  ground_truth_boxes: DetectedObject[];
+  predicted_boxes: DetectedObject[];
+  matched_count: number;
+  false_positive_count: number;
+  false_negative_count: number;
+}
+
+export interface PerClassDetectionMetric {
+  class_name: string;
+  ap: number;
+  ap50: number;
+  ap75: number;
+  precision: number;
+  recall: number;
+  ground_truth_count: number;
+  prediction_count: number;
+}
+
+export interface DetectionEvaluationReport {
+  task_type: string;
+  total_samples: number;
+  total_ground_truth_boxes: number;
+  total_predicted_boxes: number;
+  map: number;
+  map_50: number;
+  map_75: number;
+  precision: number;
+  recall: number;
+  per_class_metrics: PerClassDetectionMetric[];
+  samples: DetectionSampleVisual[];
+  operating_point: {
+    confidence_threshold: number;
+    iou_threshold: number;
+  };
+  evaluated_split?: string;
+  evaluated_at: string;
+}
+
 export interface ClassProbability {
   class_name: string;
   probability: number;
@@ -482,15 +555,21 @@ export interface ClassProbability {
 export interface PredictRequest {
   image_path?: string;
   image_base64?: string;
+  confidence_threshold?: number;
+  iou_threshold?: number;
 }
 
 export interface PredictResponse {
-  predicted_class: string;
-  confidence: number;
-  top_probabilities: ClassProbability[];
+  predicted_class?: string;
+  confidence?: number;
+  top_probabilities?: ClassProbability[];
   inference_time_ms: number;
   device: string;
   model_architecture: string;
+  task_type?: string;
+  detected_objects?: DetectedObject[];
+  image_width?: number | null;
+  image_height?: number | null;
 }
 
 export interface ModelArtifact {

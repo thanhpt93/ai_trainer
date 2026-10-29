@@ -20,6 +20,7 @@ from backend.app.domain.models import (
     ImageAnnotation,
     ClassificationAnnotation,
     TrainingJob,
+    ModelArtifact,
 )
 from backend.app.services.model_catalog_service import ModelCatalogService
 
@@ -149,6 +150,24 @@ def synthetic_classification_env():
             "temp_dir": temp_dir,
         }
     finally:
+        try:
+            db_clean = SessionLocal()
+            db_clean.query(TrainingJob).filter(TrainingJob.project_id == proj.id).delete()
+            db_clean.query(ModelArtifact).filter(ModelArtifact.project_id == proj.id).delete()
+            db_clean.query(ClassificationAnnotation).filter(
+                ClassificationAnnotation.image_annotation_id.in_(
+                    db_clean.query(ImageAnnotation.id).filter(ImageAnnotation.dataset_id == ds.id)
+                )
+            ).delete(synchronize_session=False)
+            db_clean.query(ImageAnnotation).filter(ImageAnnotation.dataset_id == ds.id).delete()
+            db_clean.query(ImageRecord).filter(ImageRecord.dataset_id == ds.id).delete()
+            db_clean.query(Dataset).filter(Dataset.id == ds.id).delete()
+            db_clean.query(ProjectLabel).filter(ProjectLabel.project_id == proj.id).delete()
+            db_clean.query(Project).filter(Project.id == proj.id).delete()
+            db_clean.commit()
+            db_clean.close()
+        except Exception:
+            pass
         db.close()
         shutil.rmtree(temp_dir, ignore_errors=True)
 

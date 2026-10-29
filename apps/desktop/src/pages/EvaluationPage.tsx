@@ -16,9 +16,20 @@ import {
   Image as ImageIcon,
   Clock,
   Cpu,
+  ChevronLeft,
+  ChevronRight,
+  Crosshair,
+  Sliders,
 } from 'lucide-react';
 import { api } from '../services/api';
-import { TrainingJob, EvaluationReport, PredictResponse } from '../types';
+import {
+  TrainingJob,
+  EvaluationReport,
+  DetectionEvaluationReport,
+  PredictResponse,
+  DetectedObject,
+  DetectionSampleVisual,
+} from '../types';
 
 export const EvaluationPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -27,16 +38,30 @@ export const EvaluationPage: React.FC = () => {
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string>('');
   const [evaluation, setEvaluation] = useState<EvaluationReport | null>(null);
+  const [detectionEval, setDetectionEval] = useState<DetectionEvaluationReport | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+
+  // Detection Visual Inspector State
+  const [selectedSampleIdx, setSelectedSampleIdx] = useState<number>(0);
+  const [showGroundTruth, setShowGroundTruth] = useState<boolean>(true);
+  const [showPredictions, setShowPredictions] = useState<boolean>(true);
+  const [filterClass, setFilterClass] = useState<string>('all');
 
   // Inference Playground State
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [base64Image, setBase64Image] = useState<string | null>(null);
   const [filePathInput, setFilePathInput] = useState<string>('');
+  const [confThreshold, setConfThreshold] = useState<number>(0.3);
   const [isPredicting, setIsPredicting] = useState<boolean>(false);
   const [predictionResult, setPredictionResult] = useState<PredictResponse | null>(null);
   const [predictionError, setPredictionError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const selectedJob = jobs.find((j) => j.id === selectedJobId);
+  const isDetection =
+    selectedJob?.task_type?.includes('Detection') ||
+    selectedJob?.model_architecture?.includes('rcnn') ||
+    detectionEval !== null;
 
   // 1. Load Completed Jobs
   useEffect(() => {
@@ -62,6 +87,7 @@ export const EvaluationPage: React.FC = () => {
   useEffect(() => {
     if (!selectedJobId) {
       setEvaluation(null);
+      setDetectionEval(null);
       return;
     }
 
@@ -69,20 +95,27 @@ export const EvaluationPage: React.FC = () => {
       setLoading(true);
       try {
         const data = await api.getTrainingJobEvaluations(selectedJobId);
-        if (data && data.accuracy !== undefined) {
+        if (data && (data.map !== undefined || data.task_type === 'Object Detection')) {
+          setDetectionEval(data as DetectionEvaluationReport);
+          setEvaluation(null);
+        } else if (data && data.accuracy !== undefined) {
           setEvaluation(data as EvaluationReport);
+          setDetectionEval(null);
         } else {
           setEvaluation(null);
+          setDetectionEval(null);
         }
       } catch (err) {
         console.error('Failed to load evaluation:', err);
         setEvaluation(null);
+        setDetectionEval(null);
       } finally {
         setLoading(false);
       }
     };
 
     loadEval();
+    setSelectedSampleIdx(0);
     setPredictionResult(null);
     setPredictionError(null);
   }, [selectedJobId]);
@@ -122,6 +155,7 @@ export const EvaluationPage: React.FC = () => {
       const resp = await api.predictTrainingJob(selectedJobId, {
         image_base64: base64Image || undefined,
         image_path: filePathInput.trim() || undefined,
+        confidence_threshold: confThreshold,
       });
       setPredictionResult(resp);
     } catch (err: any) {
@@ -132,13 +166,7 @@ export const EvaluationPage: React.FC = () => {
     }
   };
 
-  const handleSelectSample = (samplePath: string) => {
-    setFilePathInput(samplePath);
-    setBase64Image(null);
-    setPreviewUrl(null);
-    setPredictionResult(null);
-    setPredictionError(null);
-  };
+  const currentSample = detectionEval?.samples?.[selectedSampleIdx];
 
   return (
     <div className="flex-1 flex flex-col h-full bg-slate-950 overflow-y-auto select-none">
@@ -149,10 +177,14 @@ export const EvaluationPage: React.FC = () => {
             <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
               Evaluation Studio
             </span>
-            <h1 className="text-xl font-bold text-white tracking-tight">Model Evaluation & Benchmark</h1>
+            <h1 className="text-xl font-bold text-white tracking-tight">
+              {isDetection ? 'Object Detection Evaluation & Benchmark' : 'Model Evaluation & Benchmark'}
+            </h1>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Examine confusion matrices, per-class metrics, and test live predictions with input images.
+            {isDetection
+              ? 'Inspect COCO mAP metrics, per-class AP, visual bounding boxes, and test interactive detection on test images.'
+              : 'Examine confusion matrices, per-class metrics, and test live predictions with input images.'}
           </p>
         </div>
 
@@ -166,12 +198,12 @@ export const EvaluationPage: React.FC = () => {
               setSearchParams({ job: e.target.value });
             }}
             disabled={jobs.length === 0}
-            className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50 min-w-[220px]"
+            className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50 min-w-[240px]"
           >
             {jobs.length === 0 && <option value="">No completed jobs found</option>}
             {jobs.map((j) => (
               <option key={j.id} value={j.id}>
-                {j.name || j.id.slice(0, 8)} ({j.model_architecture})
+                {j.name || j.id.slice(0, 8)} ({j.task_type || 'Vision'})
               </option>
             ))}
           </select>
@@ -186,111 +218,109 @@ export const EvaluationPage: React.FC = () => {
       ) : !selectedJobId ? (
         <div className="p-16 text-center text-slate-500 text-xs">
           {jobs.length === 0
-            ? 'No completed classification jobs available for evaluation. Train a model first.'
+            ? 'No completed training jobs available for evaluation. Train a model first.'
             : 'Select a completed training job from the dropdown above to view benchmark results.'}
         </div>
       ) : (
         <div className="p-8 space-y-6 max-w-6xl">
-          {/* Section: Live Model Inference Playground */}
+          {/* Section: Interactive Model Inference Playground */}
           <div className="bg-slate-900 border border-indigo-500/30 rounded-xl p-5 shadow-lg shadow-indigo-950/20 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-indigo-400" />
-                <h2 className="text-sm font-semibold text-white">Interactive Model Inference Playground</h2>
+                <h2 className="text-sm font-semibold text-white">
+                  Interactive {isDetection ? 'Object Detection' : 'Model Inference'} Playground
+                </h2>
                 <span className="px-2 py-0.5 rounded text-[10px] bg-indigo-500/20 text-indigo-300 font-mono">
-                  Live Prediction
+                  {selectedJob?.model_architecture || 'PyTorch Model'}
                 </span>
               </div>
               <span className="text-[11px] text-slate-400">
-                Test model predictions with your own images
+                {isDetection ? 'Predict bounding boxes on test images' : 'Real-time test inference'}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-              {/* Left Column: Image Input */}
-              <div className="lg:col-span-5 space-y-3">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileChange}
-                  accept="image/jpeg,image/png,image/webp,image/bmp"
-                  className="hidden"
-                />
-
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left Column: Image Upload & Controls */}
+              <div className="lg:col-span-5 space-y-4">
+                {/* Drag & Drop Area */}
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-slate-700 hover:border-indigo-500/70 bg-slate-950/60 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer transition min-h-[160px] text-center"
+                  className="border-2 border-dashed border-slate-700 hover:border-indigo-500/60 rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer transition bg-slate-950/50 hover:bg-slate-950/80 min-h-[170px]"
                 >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
                   {previewUrl ? (
-                    <div className="relative group w-full flex items-center justify-center">
+                    <div className="space-y-2">
                       <img
                         src={previewUrl}
-                        alt="Input Preview"
-                        className="max-h-40 rounded-lg object-contain shadow-md"
+                        alt="Preview"
+                        className="max-h-36 rounded-lg object-contain mx-auto shadow-md"
                       />
-                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-lg transition text-white text-xs gap-1.5">
-                        <Upload className="w-3.5 h-3.5" />
-                        Click to change image
-                      </div>
+                      <span className="text-[11px] text-indigo-400 block font-medium">
+                        Click or drop to replace image
+                      </span>
                     </div>
                   ) : (
                     <div className="space-y-1.5 text-slate-400">
-                      <ImageIcon className="w-8 h-8 mx-auto text-slate-600" />
-                      <div className="text-xs font-semibold text-slate-300">
-                        Click or drag image here
+                      <Upload className="w-8 h-8 mx-auto text-slate-500" />
+                      <div className="text-xs font-medium text-slate-300">
+                        Drop image here or click to browse
                       </div>
-                      <div className="text-[11px] text-slate-500">
-                        Supports JPEG, PNG, WEBP, BMP
+                      <div className="text-[10px] text-slate-500">
+                        JPEG, PNG, WEBP, BMP
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Direct Path Input & Quick Samples */}
-                <div className="space-y-1.5">
-                  <label className="text-[11px] text-slate-400 block font-medium">
-                    Or specify image path on disk:
+                {/* Direct File Path Input */}
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                    Or Enter Local Image Path:
                   </label>
                   <input
                     type="text"
                     value={filePathInput}
                     onChange={(e) => {
                       setFilePathInput(e.target.value);
-                      if (e.target.value) {
-                        setBase64Image(null);
-                        setPreviewUrl(null);
-                      }
+                      setBase64Image(null);
+                      setPreviewUrl(null);
                     }}
-                    placeholder="e.g. C:\project\ai_trainer\images\dog_01.jpg"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
+                    placeholder="e.g. C:\data\test_sample.jpg"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
                   />
                 </div>
 
-                {/* Quick Test Samples */}
-                <div className="flex items-center gap-2 pt-1 text-[11px] text-slate-400">
-                  <span className="text-slate-500">Quick samples:</span>
-                  <button
-                    type="button"
-                    onClick={() => handleSelectSample('C:\\project\\ai_trainer\\images\\dog_01.jpg')}
-                    className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 transition"
-                  >
-                    dog_01.jpg
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSelectSample('C:\\project\\ai_trainer\\images\\cat_01.jpg')}
-                    className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 transition"
-                  >
-                    cat_01.jpg
-                  </button>
-                </div>
+                {/* Detection Confidence Threshold Control */}
+                {isDetection && (
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                      <span>Confidence Threshold:</span>
+                      <span className="font-mono text-indigo-300 font-semibold">{confThreshold.toFixed(2)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0.05}
+                      max={0.95}
+                      step={0.05}
+                      value={confThreshold}
+                      onChange={(e) => setConfThreshold(parseFloat(e.target.value))}
+                      className="w-full accent-indigo-500 cursor-pointer"
+                    />
+                  </div>
+                )}
 
-                {/* Predict Action Button */}
+                {/* Run Button */}
                 <button
-                  type="button"
                   onClick={handleRunPrediction}
                   disabled={isPredicting || (!base64Image && !filePathInput.trim())}
-                  className="w-full mt-2 py-2 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-2 shadow-md shadow-indigo-600/30 transition"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-semibold rounded-lg text-xs shadow-md shadow-indigo-600/20 transition"
                 >
                   {isPredicting ? (
                     <>
@@ -300,7 +330,7 @@ export const EvaluationPage: React.FC = () => {
                   ) : (
                     <>
                       <Zap className="w-3.5 h-3.5" />
-                      Run Inference (Dự đoán thử)
+                      Run {isDetection ? 'Detection' : 'Inference'}
                     </>
                   )}
                 </button>
@@ -310,7 +340,7 @@ export const EvaluationPage: React.FC = () => {
               <div className="lg:col-span-7 bg-slate-950/80 rounded-xl p-4 border border-slate-800 flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs">
-                    <span className="font-semibold text-slate-300">Prediction Output</span>
+                    <span className="font-semibold text-slate-300">Detection Output</span>
                     {predictionResult && (
                       <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
                         <span className="flex items-center gap-1">
@@ -335,11 +365,50 @@ export const EvaluationPage: React.FC = () => {
                   {!predictionResult && !predictionError && (
                     <div className="py-12 text-center text-slate-500 text-xs space-y-1">
                       <Sparkles className="w-6 h-6 mx-auto text-slate-700" />
-                      <div>Choose an image and click Run Inference to test model output.</div>
+                      <div>Choose an image and click Run to see predictions.</div>
                     </div>
                   )}
 
-                  {predictionResult && (
+                  {predictionResult && isDetection && (
+                    <div className="mt-4 space-y-3">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-300 font-medium">
+                          Detected Objects ({predictionResult.detected_objects?.length || 0}):
+                        </span>
+                        <span className="text-indigo-400 font-mono text-[11px]">
+                          Resolution: {predictionResult.image_width} × {predictionResult.image_height}
+                        </span>
+                      </div>
+
+                      {(!predictionResult.detected_objects || predictionResult.detected_objects.length === 0) ? (
+                        <div className="p-6 bg-slate-900/60 rounded-lg text-center text-slate-400 text-xs">
+                          No objects detected above confidence threshold {confThreshold.toFixed(2)}.
+                        </div>
+                      ) : (
+                        <div className="max-h-56 overflow-y-auto space-y-2">
+                          {predictionResult.detected_objects.map((obj, i) => (
+                            <div
+                              key={i}
+                              className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg flex items-center justify-between text-xs"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+                                <span className="font-semibold text-white">{obj.class_name}</span>
+                                <span className="font-mono text-[11px] text-slate-400">
+                                  [{obj.box.map((b) => Math.round(b)).join(', ')}]
+                                </span>
+                              </div>
+                              <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold font-mono text-xs">
+                                {(obj.confidence * 100).toFixed(1)}%
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {predictionResult && !isDetection && (
                     <div className="mt-4 space-y-4">
                       {/* Top Predicted Result Card */}
                       <div className="p-3 bg-slate-900 border border-emerald-500/30 rounded-xl flex items-center justify-between">
@@ -357,7 +426,7 @@ export const EvaluationPage: React.FC = () => {
                             Confidence
                           </span>
                           <div className="text-2xl font-bold text-emerald-400">
-                            {(predictionResult.confidence * 100).toFixed(1)}%
+                            {((predictionResult.confidence || 0) * 100).toFixed(1)}%
                           </div>
                         </div>
                       </div>
@@ -368,7 +437,7 @@ export const EvaluationPage: React.FC = () => {
                           Class Probabilities
                         </span>
                         <div className="space-y-1.5">
-                          {predictionResult.top_probabilities.map((item) => (
+                          {predictionResult.top_probabilities?.map((item) => (
                             <div key={item.class_name} className="space-y-1">
                               <div className="flex items-center justify-between text-xs">
                                 <span className="text-slate-300 font-medium">
@@ -397,15 +466,271 @@ export const EvaluationPage: React.FC = () => {
                 </div>
 
                 <div className="pt-3 border-t border-slate-800 text-[10px] text-slate-500 flex items-center justify-between">
-                  <span>Architecture: {predictionResult?.model_architecture || 'Custom'}</span>
+                  <span>Architecture: {predictionResult?.model_architecture || selectedJob?.model_architecture || 'Detection'}</span>
                   <span>Weights: Best Checkpoint</span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Top KPI Cards */}
-          {evaluation && (
+          {/* Object Detection Benchmark Report */}
+          {detectionEval && (
+            <div className="space-y-6">
+              {/* COCO mAP KPI Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-sm">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">COCO mAP (0.50:0.95)</span>
+                  <div className="text-2xl font-bold text-emerald-400 mt-1">
+                    {(detectionEval.map * 100).toFixed(1)}%
+                  </div>
+                  <span className="text-[10px] text-slate-500">Standard detection benchmark</span>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-sm">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">mAP @ IoU 0.50 (AP50)</span>
+                  <div className="text-2xl font-bold text-indigo-400 mt-1">
+                    {(detectionEval.map_50 * 100).toFixed(1)}%
+                  </div>
+                  <span className="text-[10px] text-slate-500">PASCAL VOC IoU threshold</span>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-sm">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">mAP @ IoU 0.75 (AP75)</span>
+                  <div className="text-2xl font-bold text-white mt-1">
+                    {(detectionEval.map_75 * 100).toFixed(1)}%
+                  </div>
+                  <span className="text-[10px] text-slate-500">Strict localization IoU</span>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-sm">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Precision / Recall</span>
+                  <div className="text-2xl font-bold text-white mt-1">
+                    {(detectionEval.precision * 100).toFixed(0)}% / {(detectionEval.recall * 100).toFixed(0)}%
+                  </div>
+                  <span className="text-[10px] text-slate-500">Operating point</span>
+                </div>
+              </div>
+
+              {/* Per-Class Detection Metrics Table */}
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-indigo-400" />
+                    <h2 className="text-sm font-semibold text-white">Per-Class Detection AP & Localization Metrics</h2>
+                  </div>
+                  <span className="text-[11px] text-slate-400">
+                    Split: <strong className="text-slate-200 uppercase">{detectionEval.evaluated_split || 'val'}</strong>
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-800 bg-slate-950/40 text-slate-400">
+                        <th className="py-2.5 px-3 font-semibold">Class Name</th>
+                        <th className="py-2.5 px-3 font-semibold">mAP (0.50:0.95)</th>
+                        <th className="py-2.5 px-3 font-semibold">AP50</th>
+                        <th className="py-2.5 px-3 font-semibold">AP75</th>
+                        <th className="py-2.5 px-3 font-semibold">Precision</th>
+                        <th className="py-2.5 px-3 font-semibold">Recall</th>
+                        <th className="py-2.5 px-3 font-semibold text-right">Ground Truth</th>
+                        <th className="py-2.5 px-3 font-semibold text-right">Predictions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono">
+                      {detectionEval.per_class_metrics.map((c) => (
+                        <tr key={c.class_name} className="hover:bg-slate-800/30">
+                          <td className="py-2.5 px-3 font-medium text-white font-sans">{c.class_name}</td>
+                          <td className="py-2.5 px-3 text-emerald-400 font-bold">{(c.ap * 100).toFixed(1)}%</td>
+                          <td className="py-2.5 px-3 text-indigo-300">{(c.ap50 * 100).toFixed(1)}%</td>
+                          <td className="py-2.5 px-3 text-slate-300">{(c.ap75 * 100).toFixed(1)}%</td>
+                          <td className="py-2.5 px-3 text-slate-300">{(c.precision * 100).toFixed(1)}%</td>
+                          <td className="py-2.5 px-3 text-slate-300">{(c.recall * 100).toFixed(1)}%</td>
+                          <td className="py-2.5 px-3 text-slate-400 text-right">{c.ground_truth_count}</td>
+                          <td className="py-2.5 px-3 text-slate-400 text-right">{c.prediction_count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Visual Bounding Box Inspector */}
+              {detectionEval.samples && detectionEval.samples.length > 0 && (
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-800 gap-3">
+                    <div className="flex items-center gap-2">
+                      <Crosshair className="w-4 h-4 text-indigo-400" />
+                      <h2 className="text-sm font-semibold text-white">Bounding Box Visual Inspector</h2>
+                    </div>
+
+                    <div className="flex items-center gap-4 text-xs">
+                      <label className="flex items-center gap-1.5 cursor-pointer text-emerald-400">
+                        <input
+                          type="checkbox"
+                          checked={showGroundTruth}
+                          onChange={(e) => setShowGroundTruth(e.target.checked)}
+                          className="rounded bg-slate-950 border-slate-700 text-emerald-600 focus:ring-0"
+                        />
+                        <span>Ground Truth ({currentSample?.ground_truth_boxes.length || 0})</span>
+                      </label>
+
+                      <label className="flex items-center gap-1.5 cursor-pointer text-indigo-400">
+                        <input
+                          type="checkbox"
+                          checked={showPredictions}
+                          onChange={(e) => setShowPredictions(e.target.checked)}
+                          className="rounded bg-slate-950 border-slate-700 text-indigo-600 focus:ring-0"
+                        />
+                        <span>Predictions ({currentSample?.predicted_boxes.length || 0})</span>
+                      </label>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setSelectedSampleIdx(Math.max(0, selectedSampleIdx - 1))}
+                          disabled={selectedSampleIdx === 0}
+                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <span className="font-mono text-slate-400 text-[11px] px-1">
+                          {selectedSampleIdx + 1} / {detectionEval.samples.length}
+                        </span>
+                        <button
+                          onClick={() =>
+                            setSelectedSampleIdx(Math.min(detectionEval.samples.length - 1, selectedSampleIdx + 1))
+                          }
+                          disabled={selectedSampleIdx >= detectionEval.samples.length - 1}
+                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Sample Details */}
+                  {currentSample && (
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                      <div className="md:col-span-8 bg-slate-950 rounded-xl p-4 border border-slate-800/80 flex flex-col items-center justify-center min-h-[300px]">
+                        <div className="relative w-full max-w-[500px] aspect-[4/3] bg-slate-900 rounded-lg border border-slate-800 flex items-center justify-center overflow-hidden">
+                          {/* Image Placeholder / Relative path representation */}
+                          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-600 text-xs gap-1 pointer-events-none">
+                            <ImageIcon className="w-10 h-10 text-slate-700" />
+                            <span>{currentSample.relative_path}</span>
+                            <span className="text-[10px] text-slate-600">
+                              {currentSample.width} × {currentSample.height} px
+                            </span>
+                          </div>
+
+                          {/* Ground Truth Bounding Box SVG Overlays */}
+                          <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100">
+                            {showGroundTruth &&
+                              currentSample.ground_truth_boxes.map((gt, i) => {
+                                const [x1, y1, x2, y2] = gt.box_normalized;
+                                const w = (x2 - x1) * 100;
+                                const h = (y2 - y1) * 100;
+                                return (
+                                  <g key={`gt-${i}`}>
+                                    <rect
+                                      x={`${x1 * 100}%`}
+                                      y={`${y1 * 100}%`}
+                                      width={`${w}%`}
+                                      height={`${h}%`}
+                                      fill="rgba(16, 185, 129, 0.12)"
+                                      stroke="#10b981"
+                                      strokeWidth="1.5"
+                                      strokeDasharray="2 1"
+                                    />
+                                    <text
+                                      x={`${x1 * 100 + 1}%`}
+                                      y={`${Math.max(4, y1 * 100 - 1)}%`}
+                                      fill="#10b981"
+                                      fontSize="3.5"
+                                      fontWeight="bold"
+                                    >
+                                      GT: {gt.class_name}
+                                    </text>
+                                  </g>
+                                );
+                              })}
+
+                            {showPredictions &&
+                              currentSample.predicted_boxes.map((p, i) => {
+                                const [x1, y1, x2, y2] = p.box_normalized;
+                                const w = (x2 - x1) * 100;
+                                const h = (y2 - y1) * 100;
+                                return (
+                                  <g key={`pred-${i}`}>
+                                    <rect
+                                      x={`${x1 * 100}%`}
+                                      y={`${y1 * 100}%`}
+                                      width={`${w}%`}
+                                      height={`${h}%`}
+                                      fill="rgba(99, 102, 241, 0.15)"
+                                      stroke="#6366f1"
+                                      strokeWidth="2"
+                                    />
+                                    <text
+                                      x={`${x1 * 100 + 1}%`}
+                                      y={`${Math.min(96, y2 * 100 + 4)}%`}
+                                      fill="#818cf8"
+                                      fontSize="3.5"
+                                      fontWeight="bold"
+                                    >
+                                      {p.class_name} ({((p.confidence || 0) * 100).toFixed(0)}%)
+                                    </text>
+                                  </g>
+                                );
+                              })}
+                          </svg>
+                        </div>
+                      </div>
+
+                      {/* Right Panel: Sample Box Matches */}
+                      <div className="md:col-span-4 space-y-3">
+                        <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 text-xs space-y-2">
+                          <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                            Sample Evaluation Stats
+                          </span>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-400">Matched Detections (TP):</span>
+                            <span className="text-emerald-400 font-bold">{currentSample.matched_count}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-400">False Positives (FP):</span>
+                            <span className="text-rose-400 font-bold">{currentSample.false_positive_count}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-400">False Negatives (FN):</span>
+                            <span className="text-amber-400 font-bold">{currentSample.false_negative_count}</span>
+                          </div>
+                        </div>
+
+                        <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 text-xs space-y-2 max-h-56 overflow-y-auto">
+                          <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                            Objects in Sample
+                          </span>
+                          {currentSample.ground_truth_boxes.length === 0 && (
+                            <span className="text-slate-500 italic text-[11px]">Negative Image (0 objects)</span>
+                          )}
+                          {currentSample.ground_truth_boxes.map((gt, i) => (
+                            <div key={i} className="p-2 rounded bg-slate-900 border border-emerald-500/20 text-[11px] flex items-center justify-between">
+                              <span className="text-emerald-400 font-medium">GT: {gt.class_name}</span>
+                              <span className="font-mono text-slate-500">[{gt.box.map((b) => Math.round(b)).join(', ')}]</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Classification Benchmark Report (P3 Fallback) */}
+          {evaluation && !isDetection && (
             <>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-sm">
@@ -499,98 +824,41 @@ export const EvaluationPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Per-Class Metrics Breakdown */}
+                {/* Per-Class Classification Metrics */}
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                     <div className="flex items-center gap-2">
                       <LineChart className="w-4 h-4 text-indigo-400" />
-                      <h2 className="text-sm font-semibold text-white">Class-Specific Performance</h2>
+                      <h2 className="text-sm font-semibold text-white">Per-Class Metrics</h2>
                     </div>
-                    <span className="text-[11px] text-slate-400">
-                      {evaluation.per_class_metrics.length} Classes
-                    </span>
+                    <span className="text-[11px] text-slate-400">Precision, Recall & F1</span>
                   </div>
 
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse text-xs">
                       <thead>
-                        <tr className="border-b border-slate-800 text-slate-400 font-medium">
-                          <th className="py-2 px-3">Class</th>
-                          <th className="py-2 px-3">Precision</th>
-                          <th className="py-2 px-3">Recall</th>
-                          <th className="py-2 px-3">F1 Score</th>
-                          <th className="py-2 px-3 text-right">Support</th>
+                        <tr className="border-b border-slate-800 bg-slate-950/40 text-slate-400">
+                          <th className="py-2 px-3 font-medium">Class Name</th>
+                          <th className="py-2 px-3 font-medium">Precision</th>
+                          <th className="py-2 px-3 font-medium">Recall</th>
+                          <th className="py-2 px-3 font-medium">F1 Score</th>
+                          <th className="py-2 px-3 font-medium text-right">Support</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
+                      <tbody className="divide-y divide-slate-800/60 font-mono">
                         {evaluation.per_class_metrics.map((pcm) => (
                           <tr key={pcm.class_name} className="hover:bg-slate-800/30">
-                            <td className="py-2.5 px-3 font-semibold text-white">{pcm.class_name}</td>
+                            <td className="py-2.5 px-3 font-medium text-white font-sans">{pcm.class_name}</td>
                             <td className="py-2.5 px-3 text-slate-300">{(pcm.precision * 100).toFixed(1)}%</td>
                             <td className="py-2.5 px-3 text-slate-300">{(pcm.recall * 100).toFixed(1)}%</td>
-                            <td className="py-2.5 px-3 text-indigo-400 font-semibold">
-                              {(pcm.f1_score * 100).toFixed(1)}%
-                            </td>
-                            <td className="py-2.5 px-3 text-right text-slate-400">{pcm.support}</td>
+                            <td className="py-2.5 px-3 text-emerald-400 font-semibold">{(pcm.f1_score * 100).toFixed(1)}%</td>
+                            <td className="py-2.5 px-3 text-slate-400 text-right">{pcm.support}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
                 </div>
-              </div>
-
-              {/* Section: Misclassified Image Gallery */}
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                  <div className="flex items-center gap-2">
-                    <FileQuestion className="w-4 h-4 text-rose-400" />
-                    <h2 className="text-sm font-semibold text-white">
-                      Misclassified Samples ({evaluation.misclassified_samples.length})
-                    </h2>
-                  </div>
-                  <span className="text-[11px] text-slate-500">
-                    Ground-truth vs Predicted discrepancies
-                  </span>
-                </div>
-
-                {evaluation.misclassified_samples.length === 0 ? (
-                  <div className="py-8 text-center text-emerald-400 text-xs flex items-center justify-center gap-2">
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Zero misclassifications detected! Model achieved 100% accuracy on evaluated split.</span>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {evaluation.misclassified_samples.map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="p-3 bg-slate-950 rounded-lg border border-slate-800 flex flex-col justify-between text-xs space-y-2"
-                      >
-                        <div className="font-mono text-[11px] text-slate-300 truncate" title={item.relative_path}>
-                          {item.relative_path}
-                        </div>
-
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
-                          <div>
-                            <span className="text-[10px] text-slate-500 block">Actual</span>
-                            <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold text-[11px]">
-                              {item.ground_truth}
-                            </span>
-                          </div>
-
-                          <ArrowRight className="w-3.5 h-3.5 text-slate-600" />
-
-                          <div className="text-right">
-                            <span className="text-[10px] text-slate-500 block">Predicted</span>
-                            <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 font-semibold text-[11px]">
-                              {item.predicted} ({(item.confidence * 100).toFixed(0)}%)
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             </>
           )}

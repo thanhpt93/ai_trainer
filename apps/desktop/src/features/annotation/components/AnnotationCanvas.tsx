@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { BoundingBox, ProjectLabel, AnnotationTool } from '../../../types';
-import { Ban } from 'lucide-react';
+import { Ban, AlertCircle, Loader2 } from 'lucide-react';
 
 interface AnnotationCanvasProps {
   imageUrl: string;
@@ -42,6 +42,8 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
   // Pan offsets (in screen pixels)
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [imageLoading, setImageLoading] = useState(true);
+  const [imageError, setImageError] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [startPan, setStartPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isSpacePressed, setIsSpacePressed] = useState(false);
@@ -100,6 +102,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
     const containerWidth = containerRef.current.clientWidth;
     const containerHeight = containerRef.current.clientHeight;
+    if (containerWidth <= 0 || containerHeight <= 0) return;
 
     // Calculate aspect-ratio fit base dimensions
     const scale = Math.min(
@@ -123,10 +126,40 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     updateDisplayedRect();
   }, [updateDisplayedRect]);
 
+  // ResizeObserver on canvas container to recalculate layout on resize
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(() => {
+      updateDisplayedRect();
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [updateDisplayedRect]);
+
+  // Handle cached or preloaded images when imageUrl changes
+  useEffect(() => {
+    setImageLoading(true);
+    setImageError(null);
+    if (imageRef.current) {
+      if (imageRef.current.complete && imageRef.current.naturalWidth > 0) {
+        setImageSize({ width: imageRef.current.naturalWidth, height: imageRef.current.naturalHeight });
+        setPanOffset({ x: 0, y: 0 });
+        setImageLoading(false);
+      }
+    }
+  }, [imageUrl]);
+
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     setImageSize({ width: img.naturalWidth, height: img.naturalHeight });
     setPanOffset({ x: 0, y: 0 });
+    setImageLoading(false);
+    setImageError(null);
+  };
+
+  const handleImageError = () => {
+    setImageLoading(false);
+    setImageError('Image failed to load. Please verify the physical file exists on disk.');
   };
 
   // Check if screen coordinates fall within the displayed image rectangle
@@ -487,6 +520,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         src={imageUrl}
         alt="Annotation Subject"
         onLoad={handleImageLoad}
+        onError={handleImageError}
         style={{
           position: 'absolute',
           left: `${displayedRect.x}px`,
@@ -495,8 +529,23 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
           height: `${displayedRect.height}px`,
           pointerEvents: 'none',
         }}
-        className="object-contain shadow-2xl"
+        className={`object-contain shadow-2xl transition-opacity duration-150 ${imageLoading || imageError ? 'opacity-0' : 'opacity-100'}`}
       />
+
+      {/* Loading Spinner */}
+      {imageLoading && !imageError && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+          <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+        </div>
+      )}
+
+      {/* Image Error Alert */}
+      {imageError && (
+        <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center text-rose-400 p-4 text-center z-20">
+          <AlertCircle className="w-8 h-8 mb-2" />
+          <span className="text-xs font-semibold">{imageError}</span>
+        </div>
+      )}
 
       {/* Negative Image Overlay Badge */}
       {isNegative && (

@@ -71,14 +71,37 @@ This document outlines the multi-phase technical roadmap for the **NOVA AI Train
 
 ---
 
-## Phase 4: Object Detection Training Pipeline (Next Recommended Phase)
+## Phase 4: Object Detection Training Pipeline End-to-End (Completed)
 
-- [ ] Implementation of `ObjectDetectionAdapter` for bounding box datasets.
-- [ ] Support for detection architectures: YOLOv8 / YOLOv11 and RT-DETR backends.
-- [ ] Bounding box loss computation (box regression, class loss, distribution focal loss).
-- [ ] Live evaluation metrics: Mean Average Precision (mAP@50, mAP@50:95) and class recall.
-- [ ] Detection visualizer overlaying predicted boxes with ground truth.
-- [ ] ONNX export with NMS post-processing configuration for deployment.
+- [x] **Detection Dataset Validation & Split Ingestion**:
+  - Validates normalized bounding box coordinates `[0, 1]`, enforces positive area, safe boundary clamping.
+  - Explicit negative image support (`is_negative=True` / zero annotations retained as background samples).
+  - Stable class mapping reserving index `0` for `__background__` and `1..N` for project labels.
+  - Synchronized image and bounding box transforms (aspect ratio resize, horizontal flip).
+  - Image-level reproducible train/val/test splitting with class distribution tracking.
+- [x] **Model Catalog & Detection Backbones**:
+  - `fasterrcnn_resnet50_fpn` (Faster R-CNN with ResNet-50 FPN backbone).
+  - `fasterrcnn_mobilenet_v3_large_320_fpn` (Lightweight edge-ready Faster R-CNN).
+  - Pretrained torchvision weights integration and cached weight checkpoints.
+- [x] **Isolated Detection Worker & Training Subprocess**:
+  - Dedicated worker process `backend/app/workers/detection_worker.py`.
+  - Real forward and backward passes with 4-part loss tracking (`loss_classifier`, `loss_box_reg`, `loss_objectness`, `loss_rpn_box_reg`).
+  - Atomic checkpointing (`latest_checkpoint.pt` and `best_checkpoint.pt`).
+  - Cooperative cancellation protocol and checkpoint resume (`POST /api/v1/training/jobs/{job_id}/resume`).
+- [x] **COCO Evaluation & Bounding Box Visualizer**:
+  - Standard COCO benchmark metrics (`mAP @ 0.50:0.95`, `AP50`, `AP75`, per-class AP) via `pycocotools`.
+  - Bipartite IoU matching at operating point ($\tau=0.25$, $\text{IoU}=0.50$) for Precision, Recall, F1.
+  - Ground truth vs predicted bounding box visual overlay with color-coded label badges.
+- [x] **Model Registry & ONNX Export**:
+  - Self-contained deployment bundles: `model.onnx`, `model_metadata.json`, `labels.json`, `preprocessing.json`, `postprocessing.json`, `validation_report.json`, `export_manifest.json`.
+  - Automated smoke test verifying inference with `onnxruntime`.
+  - Interactive prediction endpoint (`POST /api/v1/training/jobs/{job_id}/predict`).
+- [x] **Comprehensive Frontend Updates**:
+  - Training Configuration UI supporting Object Detection projects, model filtering, validation preview, and detection hyperparameters.
+  - Training Monitor UI with detection loss decomposition and mAP telemetry.
+  - Evaluation Studio UI with COCO metric cards, per-class AP table, bounding box inspector, and live detection test playground.
+- [x] **Automated Tests**:
+  - 8 new detection unit and integration tests (29/29 total tests passing in pytest).
 
 ---
 

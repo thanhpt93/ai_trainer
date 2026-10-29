@@ -26,7 +26,7 @@ class TrainingHyperparameters(BaseModel):
     model_architecture: str = Field(default="resnet18")
     pretrained: bool = Field(default=True)
     device: str = Field(default="auto")  # 'auto', 'cpu', 'cuda'
-    input_size: int = Field(default=224, ge=32, le=1024)
+    input_size: int = Field(default=224, ge=32, le=2048)
     batch_size: int = Field(default=16, ge=1, le=512)
     epochs: int = Field(default=10, ge=1, le=1000)
     learning_rate: float = Field(default=0.001, gt=0.0, le=1.0)
@@ -40,6 +40,14 @@ class TrainingHyperparameters(BaseModel):
     horizontal_flip: bool = Field(default=True)
     rotation_degrees: int = Field(default=10, ge=0, le=180)
     color_jitter: bool = Field(default=False)
+
+    # Object Detection specific hyperparameters
+    confidence_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    iou_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    max_detections: int = Field(default=100, ge=1, le=1000)
+    min_size: int = Field(default=800, ge=64, le=2048)
+    max_size: int = Field(default=1333, ge=64, le=2048)
+    grad_clip: Optional[float] = Field(default=10.0, ge=0.0)
 
 
 class DatasetValidationRequest(BaseModel):
@@ -60,6 +68,7 @@ class DatasetValidationResponse(BaseModel):
     is_valid: bool
     project_id: str
     dataset_id: str
+    task_type: str = "Image Classification"
     total_images: int
     valid_annotated_images: int
     unannotated_images: int
@@ -72,6 +81,9 @@ class DatasetValidationResponse(BaseModel):
     val_count: int
     test_count: int
     split_manifest_id: Optional[str] = None
+    total_bounding_boxes: int = 0
+    boxes_per_class: Dict[str, int] = Field(default_factory=dict)
+    images_per_class: Dict[str, int] = Field(default_factory=dict)
     errors: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
 
@@ -87,7 +99,7 @@ class TrainingJobCreate(BaseModel):
 class EpochMetric(BaseModel):
     epoch: int
     train_loss: float
-    train_accuracy: float
+    train_accuracy: Optional[float] = None
     val_loss: Optional[float] = None
     val_accuracy: Optional[float] = None
     val_precision: Optional[float] = None
@@ -96,6 +108,15 @@ class EpochMetric(BaseModel):
     learning_rate: float
     duration_seconds: float
     timestamp: str
+
+    # Object Detection epoch metrics
+    val_map: Optional[float] = None
+    val_map_50: Optional[float] = None
+    val_map_75: Optional[float] = None
+    loss_classifier: Optional[float] = None
+    loss_box_reg: Optional[float] = None
+    loss_objectness: Optional[float] = None
+    loss_rpn_box_reg: Optional[float] = None
 
 
 class ConfusionMatrixData(BaseModel):
@@ -131,6 +152,57 @@ class EvaluationReport(BaseModel):
     evaluated_at: str
 
 
+class DetectedObject(BaseModel):
+    label_id: Optional[str] = None
+    class_name: str
+    class_index: int
+    confidence: float
+    box: List[float] = Field(..., description="[x1, y1, x2, y2] in pixel coordinates")
+    box_normalized: List[float] = Field(..., description="[x_min, y_min, x_max, y_max] normalized [0, 1]")
+    matched_gt: Optional[bool] = None
+    iou: Optional[float] = None
+
+
+class DetectionSampleVisual(BaseModel):
+    image_id: str
+    relative_path: str
+    width: int
+    height: int
+    ground_truth_boxes: List[DetectedObject]
+    predicted_boxes: List[DetectedObject]
+    matched_count: int
+    false_positive_count: int
+    false_negative_count: int
+
+
+class PerClassDetectionMetric(BaseModel):
+    class_name: str
+    ap: float
+    ap50: float
+    ap75: float
+    precision: float
+    recall: float
+    ground_truth_count: int
+    prediction_count: int
+
+
+class DetectionEvaluationReport(BaseModel):
+    task_type: str = "Object Detection"
+    total_samples: int
+    total_ground_truth_boxes: int
+    total_predicted_boxes: int
+    map: float
+    map_50: float
+    map_75: float
+    precision: float
+    recall: float
+    per_class_metrics: List[PerClassDetectionMetric]
+    samples: List[DetectionSampleVisual]
+    operating_point: Dict[str, Any]
+    evaluated_split: str = "val"
+    evaluated_at: str
+
+
 class ClassProbability(BaseModel):
     class_name: str
     probability: float
@@ -139,15 +211,21 @@ class ClassProbability(BaseModel):
 class PredictRequest(BaseModel):
     image_path: Optional[str] = None
     image_base64: Optional[str] = None
+    confidence_threshold: Optional[float] = 0.3
+    iou_threshold: Optional[float] = 0.5
 
 
 class PredictResponse(BaseModel):
-    predicted_class: str
-    confidence: float
-    top_probabilities: List[ClassProbability]
+    predicted_class: Optional[str] = ""
+    confidence: Optional[float] = 0.0
+    top_probabilities: List[ClassProbability] = Field(default_factory=list)
     inference_time_ms: float
     device: str
     model_architecture: str
+    task_type: str = "Image Classification"
+    detected_objects: List[DetectedObject] = Field(default_factory=list)
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
 
 
 class TrainingJobResponse(BaseModel):

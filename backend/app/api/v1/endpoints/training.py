@@ -1,14 +1,16 @@
 import json
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.app.db.session import get_db
+from backend.app.domain.models import Project, Dataset
 from backend.app.schemas.training_job import (
     TrainingJobCreate,
     TrainingJobResponse,
     DatasetValidationRequest,
     DatasetValidationResponse,
+    SplitConfig,
     EpochMetric,
     PredictRequest,
     PredictResponse,
@@ -20,15 +22,18 @@ from backend.app.schemas.model_artifact import (
 )
 from backend.app.services.model_catalog_service import ModelCatalogService
 from backend.app.services.classification_dataset_adapter import ClassificationDatasetAdapter
+from backend.app.adapters.detection_dataset_adapter import DetectionDatasetAdapter
 from backend.app.services.training_manager import TrainingManager
 
 router = APIRouter()
 
 
 @router.get("/models", response_model=List[ModelCatalogItem])
-def list_available_models():
-    """Retrieve catalog of supported neural network architectures for classification."""
-    return ModelCatalogService.list_models()
+def list_available_models(
+    task_type: Optional[str] = Query(None, description="Filter models by task_type, e.g. OBJECT_DETECTION or Image Classification"),
+):
+    """Retrieve catalog of supported neural network architectures for classification and detection."""
+    return ModelCatalogService.list_models(task_type=task_type)
 
 
 @router.post("/datasets/validate", response_model=DatasetValidationResponse)
@@ -37,15 +42,61 @@ def validate_dataset_for_training(
     db: Session = Depends(get_db),
 ):
     """
-    Validate annotations, class distributions, file readability, and build
-    stratified split ratios before starting a training job.
+    Validate annotations, class distributions, file readability, bounding boxes,
+    and build dataset splits before starting a training job.
     """
-    resp, _ = ClassificationDatasetAdapter.validate_and_prepare_dataset(
-        db=db,
-        project_id=req.project_id,
-        dataset_id=req.dataset_id,
-        split_config=req.split_config,
-    )
+    project = db.query(Project).filter(Project.id == req.project_id).first()
+    if project and "Detection" in project.task_type:
+        resp, _ = DetectionDatasetAdapter.validate_and_prepare_dataset(
+            db=db,
+            project_id=req.project_id,
+            dataset_id=req.dataset_id,
+            split_config=req.split_config,
+        )
+    else:
+        resp, _ = ClassificationDatasetAdapter.validate_and_prepare_dataset(
+            db=db,
+            project_id=req.project_id,
+            dataset_id=req.dataset_id,
+            split_config=req.split_config,
+        )
+    return resp
+
+
+@router.post("/datasets/{dataset_id}/validate", response_model=DatasetValidationResponse)
+def validate_dataset_by_id(
+    dataset_id: str,
+    req: Optional[DatasetValidationRequest] = None,
+    project_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Validate annotations, class distributions, file readability, bounding boxes,
+    for a specific dataset ID.
+    """
+    proj_id = (req.project_id if req else None) or project_id
+    if not proj_id:
+        ds = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+        if not ds:
+            raise HTTPException(status_code=404, detail=f"Dataset with ID '{dataset_id}' not found.")
+        proj_id = ds.project_id
+
+    split_cfg = req.split_config if req else SplitConfig()
+    project = db.query(Project).filter(Project.id == proj_id).first()
+    if project and "Detection" in project.task_type:
+        resp, _ = DetectionDatasetAdapter.validate_and_prepare_dataset(
+            db=db,
+            project_id=proj_id,
+            dataset_id=dataset_id,
+            split_config=split_cfg,
+        )
+    else:
+        resp, _ = ClassificationDatasetAdapter.validate_and_prepare_dataset(
+            db=db,
+            project_id=proj_id,
+            dataset_id=dataset_id,
+            split_config=split_cfg,
+        )
     return resp
 
 
@@ -98,6 +149,15 @@ def cancel_training_job(
     return TrainingManager.cancel_job(db, job_id)
 
 
+@router.post("/jobs/{job_id}/resume", response_model=TrainingJobResponse)
+def resume_training_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+):
+    """Resume a stopped or cancelled training job from its latest saved checkpoint."""
+    return TrainingManager.resume_job(db, job_id)
+
+
 @router.get("/jobs/{job_id}/logs")
 def get_training_job_logs(
     job_id: str,
@@ -113,7 +173,7 @@ def get_training_job_metrics(
     job_id: str,
     db: Session = Depends(get_db),
 ):
-    """Retrieve all epoch metrics (loss, accuracy, F1, lr, duration) for visualization."""
+    """Retrieve all epoch metrics (loss, accuracy, mAP, lr, duration) for visualization."""
     job = TrainingManager.get_job(db, job_id)
     if not job.metrics_json:
         return []
@@ -124,12 +184,24 @@ def get_training_job_metrics(
         return []
 
 
+@router.post("/jobs/{job_id}/evaluate")
+def evaluate_training_job(
+    job_id: str,
+    split: str = Query("val", description="Dataset split to evaluate: val or test"),
+    conf_thresh: float = Query(0.5, ge=0.0, le=1.0),
+    iou_thresh: float = Query(0.5, ge=0.0, le=1.0),
+    db: Session = Depends(get_db),
+):
+    """Run detection or classification evaluation benchmark on the trained model checkpoint."""
+    return TrainingManager.evaluate_job(db, job_id, split=split, conf_thresh=conf_thresh, iou_thresh=iou_thresh)
+
+
 @router.get("/jobs/{job_id}/evaluations")
 def get_training_job_evaluations(
     job_id: str,
     db: Session = Depends(get_db),
 ):
-    """Retrieve post-training evaluation metrics, confusion matrix, and misclassifications."""
+    """Retrieve post-training evaluation metrics, confusion matrix, mAP, and sample predictions."""
     data = TrainingManager.get_job_evaluation(db, job_id)
     return data or {"status": "not_evaluated"}
 
@@ -159,4 +231,6 @@ def predict_with_training_job_model(
         job_id=job_id,
         image_path=req.image_path,
         image_base64=req.image_base64,
+        confidence_threshold=req.confidence_threshold or 0.3,
+        iou_threshold=req.iou_threshold or 0.5,
     )

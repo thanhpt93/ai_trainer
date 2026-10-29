@@ -34,6 +34,7 @@ export const TrainingMonitorPage: React.FC = () => {
   const [logs, setLogs] = useState<string[]>([]);
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const [isCancelling, setIsCancelling] = useState<boolean>(false);
+  const [isResuming, setIsResuming] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportResult, setExportResult] = useState<ExportModelResponse | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -100,6 +101,19 @@ export const TrainingMonitorPage: React.FC = () => {
     }
   };
 
+  const handleResumeJob = async () => {
+    if (!id) return;
+    setIsResuming(true);
+    try {
+      const res = await api.resumeTrainingJob(id);
+      setJob(res);
+    } catch (err: any) {
+      alert(`Resume failed: ${err.message}`);
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
   const handleExportModel = async () => {
     if (!id) return;
     setIsExporting(true);
@@ -107,7 +121,7 @@ export const TrainingMonitorPage: React.FC = () => {
     try {
       const resp = await api.exportTrainingJobModel(id, {
         format: 'ONNX',
-        input_size: 224,
+        input_size: job?.task_type?.includes('Detection') ? 800 : 224,
         dynamic_batch: true,
       });
       setExportResult(resp);
@@ -128,6 +142,7 @@ export const TrainingMonitorPage: React.FC = () => {
   }
 
   const latestMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null;
+  const isDetection = job.task_type?.includes('Detection') || job.model_architecture?.includes('rcnn');
 
   return (
     <div className="flex-1 flex flex-col h-full bg-slate-950 overflow-hidden select-none">
@@ -148,6 +163,9 @@ export const TrainingMonitorPage: React.FC = () => {
               </h1>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-slate-800 text-slate-300 border border-slate-700">
                 {job.model_architecture || 'resnet18'}
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                {isDetection ? 'Object Detection' : 'Classification'}
               </span>
               <span
                 className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
@@ -182,6 +200,17 @@ export const TrainingMonitorPage: React.FC = () => {
             >
               <StopCircle className="w-3.5 h-3.5" />
               {isCancelling ? 'Cancelling...' : 'Cancel Job'}
+            </button>
+          )}
+
+          {(job.status === 'CANCELLED' || job.status === 'FAILED') && (
+            <button
+              onClick={handleResumeJob}
+              disabled={isResuming}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 rounded-lg text-xs font-semibold transition"
+            >
+              <Play className="w-3.5 h-3.5" />
+              {isResuming ? 'Resuming...' : 'Resume Training'}
             </button>
           )}
 
@@ -252,7 +281,9 @@ export const TrainingMonitorPage: React.FC = () => {
         </div>
 
         <div className="bg-slate-900/80 border border-slate-800 p-3 rounded-xl">
-          <span className="text-[10px] text-slate-400 uppercase font-semibold">Best Val Accuracy</span>
+          <span className="text-[10px] text-slate-400 uppercase font-semibold">
+            {isDetection ? 'Best Val mAP@50' : 'Best Val Accuracy'}
+          </span>
           <div className="text-lg font-bold text-emerald-400 mt-0.5">
             {job.best_metric_value !== null && job.best_metric_value !== undefined ? (
               `${(job.best_metric_value * 100).toFixed(1)}%`
@@ -260,7 +291,7 @@ export const TrainingMonitorPage: React.FC = () => {
               '—'
             )}
           </div>
-          <span className="text-[10px] text-slate-500">Highest validation score</span>
+          <span className="text-[10px] text-slate-500">Highest validation metric</span>
         </div>
 
         <div className="bg-slate-900/80 border border-slate-800 p-3 rounded-xl">
@@ -268,8 +299,12 @@ export const TrainingMonitorPage: React.FC = () => {
           <div className="text-lg font-bold text-white mt-0.5 font-mono">
             {latestMetric ? latestMetric.train_loss.toFixed(4) : '—'}
           </div>
-          <span className="text-[10px] text-slate-500">
-            {latestMetric ? `Train Acc: ${(latestMetric.train_accuracy * 100).toFixed(1)}%` : 'Awaiting 1st epoch'}
+          <span className="text-[10px] text-slate-500 truncate block">
+            {latestMetric
+              ? isDetection && latestMetric.loss_box_reg !== undefined
+                ? `box: ${latestMetric.loss_box_reg?.toFixed(3)}, cls: ${latestMetric.loss_classifier?.toFixed(3)}`
+                : `Train Acc: ${((latestMetric.train_accuracy || 0) * 100).toFixed(1)}%`
+              : 'Awaiting 1st epoch'}
           </span>
         </div>
 
@@ -291,7 +326,7 @@ export const TrainingMonitorPage: React.FC = () => {
           <div className="p-3 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-semibold text-white">
               <LineChart className="w-4 h-4 text-indigo-400" />
-              <span>Training Telemetry Curves</span>
+              <span>Training Telemetry ({isDetection ? 'Detection Metrics' : 'Classification Metrics'})</span>
             </div>
             <span className="text-[10px] text-slate-500">
               {metrics.length} Epoch{metrics.length !== 1 ? 's' : ''} Recorded
@@ -299,10 +334,10 @@ export const TrainingMonitorPage: React.FC = () => {
           </div>
 
           <div className="flex-1 p-4 overflow-y-auto space-y-4">
-            {/* Accuracy Table / Curve Preview */}
+            {/* Progression Curve Preview */}
             <div className="bg-slate-950 p-3 rounded-lg border border-slate-800/80">
               <div className="flex items-center justify-between text-xs font-semibold text-slate-300 mb-2">
-                <span>Validation Accuracy Progression</span>
+                <span>{isDetection ? 'Validation mAP@50 Progression' : 'Validation Accuracy Progression'}</span>
                 <span className="text-emerald-400 text-[11px]">
                   Target: 100%
                 </span>
@@ -314,27 +349,28 @@ export const TrainingMonitorPage: React.FC = () => {
                 </div>
               ) : (
                 <div className="space-y-1.5">
-                  {metrics.map((m) => (
-                    <div key={m.epoch} className="flex items-center gap-3 text-xs">
-                      <span className="w-12 text-slate-500 font-mono text-[11px]">
-                        Ep {m.epoch}
-                      </span>
-                      <div className="flex-1 bg-slate-900 h-3 rounded overflow-hidden flex">
-                        <div
-                          className="bg-indigo-500 h-full rounded transition-all"
-                          style={{ width: `${(m.val_accuracy || 0) * 100}%` }}
-                        />
+                  {metrics.map((m) => {
+                    const score = isDetection ? (m.val_map_50 ?? m.val_accuracy ?? 0) : (m.val_accuracy ?? 0);
+                    return (
+                      <div key={m.epoch} className="flex items-center gap-3 text-xs">
+                        <span className="w-12 text-slate-500 font-mono text-[11px]">
+                          Ep {m.epoch}
+                        </span>
+                        <div className="flex-1 bg-slate-900 h-3 rounded overflow-hidden flex">
+                          <div
+                            className="bg-indigo-500 h-full rounded transition-all"
+                            style={{ width: `${Math.min(100, score * 100)}%` }}
+                          />
+                        </div>
+                        <span className="w-14 text-right font-mono text-[11px] text-slate-300 font-semibold">
+                          {(score * 100).toFixed(1)}%
+                        </span>
+                        <span className="w-14 text-right font-mono text-[10px] text-slate-500">
+                          {m.duration_seconds}s
+                        </span>
                       </div>
-                      <span className="w-14 text-right font-mono text-[11px] text-slate-300 font-semibold">
-                        {m.val_accuracy !== null && m.val_accuracy !== undefined
-                          ? `${(m.val_accuracy * 100).toFixed(1)}%`
-                          : '—'}
-                      </span>
-                      <span className="w-14 text-right font-mono text-[10px] text-slate-500">
-                        {m.duration_seconds}s
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -350,10 +386,21 @@ export const TrainingMonitorPage: React.FC = () => {
                     <tr className="border-b border-slate-800 bg-slate-900/40 text-slate-400 font-mono">
                       <th className="py-1.5 px-3">Ep</th>
                       <th className="py-1.5 px-3">Train Loss</th>
-                      <th className="py-1.5 px-3">Train Acc</th>
-                      <th className="py-1.5 px-3">Val Loss</th>
-                      <th className="py-1.5 px-3">Val Acc</th>
-                      <th className="py-1.5 px-3">Val F1</th>
+                      {isDetection ? (
+                        <>
+                          <th className="py-1.5 px-3">Box Loss</th>
+                          <th className="py-1.5 px-3">Cls Loss</th>
+                          <th className="py-1.5 px-3">Val mAP@50</th>
+                          <th className="py-1.5 px-3">Val mAP</th>
+                        </>
+                      ) : (
+                        <>
+                          <th className="py-1.5 px-3">Train Acc</th>
+                          <th className="py-1.5 px-3">Val Loss</th>
+                          <th className="py-1.5 px-3">Val Acc</th>
+                          <th className="py-1.5 px-3">Val F1</th>
+                        </>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/40 font-mono">
@@ -361,18 +408,37 @@ export const TrainingMonitorPage: React.FC = () => {
                       <tr key={m.epoch} className="hover:bg-slate-900/30">
                         <td className="py-1.5 px-3 text-slate-300">{m.epoch}</td>
                         <td className="py-1.5 px-3 text-slate-400">{m.train_loss.toFixed(4)}</td>
-                        <td className="py-1.5 px-3 text-slate-300">{(m.train_accuracy * 100).toFixed(1)}%</td>
-                        <td className="py-1.5 px-3 text-slate-400">
-                          {m.val_loss !== null && m.val_loss !== undefined ? m.val_loss.toFixed(4) : '—'}
-                        </td>
-                        <td className="py-1.5 px-3 text-emerald-400 font-semibold">
-                          {m.val_accuracy !== null && m.val_accuracy !== undefined
-                            ? `${(m.val_accuracy * 100).toFixed(1)}%`
-                            : '—'}
-                        </td>
-                        <td className="py-1.5 px-3 text-indigo-400">
-                          {m.val_f1 !== null && m.val_f1 !== undefined ? m.val_f1.toFixed(4) : '—'}
-                        </td>
+                        {isDetection ? (
+                          <>
+                            <td className="py-1.5 px-3 text-slate-400">
+                              {m.loss_box_reg !== undefined && m.loss_box_reg !== null ? m.loss_box_reg.toFixed(4) : '—'}
+                            </td>
+                            <td className="py-1.5 px-3 text-slate-400">
+                              {m.loss_classifier !== undefined && m.loss_classifier !== null ? m.loss_classifier.toFixed(4) : '—'}
+                            </td>
+                            <td className="py-1.5 px-3 text-emerald-400 font-semibold">
+                              {m.val_map_50 !== undefined && m.val_map_50 !== null ? `${(m.val_map_50 * 100).toFixed(1)}%` : '—'}
+                            </td>
+                            <td className="py-1.5 px-3 text-indigo-400">
+                              {m.val_map !== undefined && m.val_map !== null ? `${(m.val_map * 100).toFixed(1)}%` : '—'}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="py-1.5 px-3 text-slate-300">{((m.train_accuracy || 0) * 100).toFixed(1)}%</td>
+                            <td className="py-1.5 px-3 text-slate-400">
+                              {m.val_loss !== null && m.val_loss !== undefined ? m.val_loss.toFixed(4) : '—'}
+                            </td>
+                            <td className="py-1.5 px-3 text-emerald-400 font-semibold">
+                              {m.val_accuracy !== null && m.val_accuracy !== undefined
+                                ? `${(m.val_accuracy * 100).toFixed(1)}%`
+                                : '—'}
+                            </td>
+                            <td className="py-1.5 px-3 text-indigo-400">
+                              {m.val_f1 !== null && m.val_f1 !== undefined ? m.val_f1.toFixed(4) : '—'}
+                            </td>
+                          </>
+                        )}
                       </tr>
                     ))}
                   </tbody>

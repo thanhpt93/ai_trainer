@@ -16,6 +16,7 @@ import {
   Sliders,
   ChevronRight,
   ShieldAlert,
+  Crosshair,
 } from 'lucide-react';
 import { api } from '../services/api';
 import {
@@ -48,7 +49,7 @@ export const TrainingPage: React.FC = () => {
   // Selection
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>('');
-  const [selectedModelId, setSelectedModelId] = useState<string>('resnet18');
+  const [selectedModelId, setSelectedModelId] = useState<string>('');
   const [runName, setRunName] = useState<string>('');
 
   // Hyperparameters
@@ -70,6 +71,9 @@ export const TrainingPage: React.FC = () => {
     horizontal_flip: true,
     rotation_degrees: 10,
     color_jitter: false,
+    confidence_threshold: 0.5,
+    iou_threshold: 0.5,
+    max_detections: 100,
   });
 
   // Split Configuration
@@ -87,12 +91,15 @@ export const TrainingPage: React.FC = () => {
   const [startingJob, setStartingJob] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const isDetection = selectedProject ? selectedProject.task_type.includes('Detection') : false;
+
   // 1. Initial Load: Projects, Models, Hardware, Jobs
   useEffect(() => {
     const initData = async () => {
       try {
         const [projRes, modelRes, hwRes, jobsRes] = await Promise.all([
-          api.getProjects(undefined, 'Image Classification'),
+          api.getProjects(),
           api.getAvailableModels(),
           api.getHardwareInfo(),
           api.getTrainingJobs(),
@@ -121,9 +128,29 @@ export const TrainingPage: React.FC = () => {
     initData();
   }, []);
 
-  // 2. When Project Changes: Reload datasets
+  // 2. When Project Changes: Reload datasets and adapt models
   useEffect(() => {
     if (!selectedProjectId) return;
+    const proj = projects.find((p) => p.id === selectedProjectId);
+    const projIsDet = proj ? proj.task_type.includes('Detection') : false;
+
+    // Filter models
+    const compatibleModels = models.filter((m) =>
+      projIsDet ? m.task_type.includes('Detection') : m.task_type.includes('Classification')
+    );
+
+    if (compatibleModels.length > 0) {
+      const defaultM = compatibleModels[0];
+      setSelectedModelId(defaultM.id);
+      setHyperparams((prev) => ({
+        ...prev,
+        model_architecture: defaultM.architecture,
+        input_size: defaultM.default_input_size,
+        learning_rate: defaultM.default_learning_rate,
+        batch_size: defaultM.default_batch_size,
+      }));
+    }
+
     const loadDatasets = async () => {
       try {
         const dsRes = await api.getProjectDatasets(selectedProjectId);
@@ -139,7 +166,7 @@ export const TrainingPage: React.FC = () => {
       }
     };
     loadDatasets();
-  }, [selectedProjectId]);
+  }, [selectedProjectId, projects, models]);
 
   // 3. When Dataset Changes or Split Config changes: Run Dataset Validation
   useEffect(() => {
@@ -247,6 +274,10 @@ export const TrainingPage: React.FC = () => {
     }
   };
 
+  const filteredModels = models.filter((m) =>
+    isDetection ? m.task_type.includes('Detection') : m.task_type.includes('Classification')
+  );
+
   return (
     <div className="flex-1 flex flex-col h-full bg-slate-950 overflow-y-auto">
       {/* Header */}
@@ -255,12 +286,14 @@ export const TrainingPage: React.FC = () => {
           <div>
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                Phase 3 Engine
+                {isDetection ? 'Object Detection Engine' : 'Classification Engine'}
               </span>
-              <h1 className="text-xl font-bold text-white tracking-tight">Image Classification Training</h1>
+              <h1 className="text-xl font-bold text-white tracking-tight">
+                {isDetection ? 'Object Detection Training' : 'Image Classification Training'}
+              </h1>
             </div>
             <p className="text-xs text-slate-400 mt-1">
-              End-to-end PyTorch training pipeline with worker process isolation, real-time metrics, and ONNX deployment export.
+              End-to-end PyTorch training pipeline with worker process isolation, real-time metrics, evaluation benchmark, and ONNX deployment export.
             </p>
           </div>
 
@@ -357,10 +390,11 @@ export const TrainingPage: React.FC = () => {
                   <thead>
                     <tr className="border-b border-slate-800 bg-slate-950/40 text-slate-400">
                       <th className="py-3 px-4 font-medium">Run Name</th>
+                      <th className="py-3 px-4 font-medium">Task</th>
                       <th className="py-3 px-4 font-medium">Model</th>
                       <th className="py-3 px-4 font-medium">Status</th>
                       <th className="py-3 px-4 font-medium">Progress</th>
-                      <th className="py-3 px-4 font-medium">Best Val Acc</th>
+                      <th className="py-3 px-4 font-medium">Best Metric</th>
                       <th className="py-3 px-4 font-medium">Device</th>
                       <th className="py-3 px-4 font-medium">Created</th>
                       <th className="py-3 px-4 font-medium text-right">Actions</th>
@@ -378,6 +412,11 @@ export const TrainingPage: React.FC = () => {
                             <ChevronRight className="w-3.5 h-3.5 opacity-50" />
                           </button>
                         </td>
+                        <td className="py-3 px-4 text-slate-300">
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 border border-slate-700">
+                            {job.task_type || 'Image Classification'}
+                          </span>
+                        </td>
                         <td className="py-3 px-4 text-slate-300 font-mono text-[11px]">
                           {job.model_architecture || 'resnet18'}
                         </td>
@@ -388,7 +427,7 @@ export const TrainingPage: React.FC = () => {
                         <td className="py-3 px-4">
                           {job.best_metric_value !== null && job.best_metric_value !== undefined ? (
                             <span className="text-emerald-400 font-semibold">
-                              {(job.best_metric_value * 100).toFixed(1)}%
+                              {(job.best_metric_value * 100).toFixed(1)}% ({job.best_metric_name || 'score'})
                             </span>
                           ) : (
                             <span className="text-slate-500">—</span>
@@ -427,13 +466,15 @@ export const TrainingPage: React.FC = () => {
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
               <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
                 <FolderKanban className="w-4 h-4 text-indigo-400" />
-                <h2 className="text-sm font-semibold text-white">1. Select Classification Dataset</h2>
+                <h2 className="text-sm font-semibold text-white">
+                  1. Select Project & Dataset ({isDetection ? 'Object Detection' : 'Image Classification'})
+                </h2>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Project (Classification Only)
+                    Project
                   </label>
                   <select
                     value={selectedProjectId}
@@ -442,7 +483,7 @@ export const TrainingPage: React.FC = () => {
                   >
                     {projects.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name} ({p.task_type})
+                        {p.name} [{p.task_type}]
                       </option>
                     ))}
                   </select>
@@ -471,7 +512,7 @@ export const TrainingPage: React.FC = () => {
               {validating ? (
                 <div className="p-4 bg-slate-950 rounded-lg border border-slate-800 flex items-center justify-center gap-2 text-xs text-slate-400">
                   <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
-                  Validating dataset annotations, file readability, and class distributions...
+                  Validating dataset annotations, {isDetection ? 'bounding boxes' : 'labels'}, and splits...
                 </div>
               ) : validationResult ? (
                 <div
@@ -500,6 +541,28 @@ export const TrainingPage: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Summary Counters */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px]">
+                    <div className="p-2 rounded bg-slate-900/80 border border-slate-800">
+                      <span className="text-slate-400 block">Valid Images</span>
+                      <span className="text-white font-bold">{validationResult.valid_annotated_images}</span>
+                    </div>
+                    {isDetection && (
+                      <div className="p-2 rounded bg-slate-900/80 border border-slate-800">
+                        <span className="text-slate-400 block">Bounding Boxes</span>
+                        <span className="text-white font-bold">{validationResult.total_bounding_boxes || 0}</span>
+                      </div>
+                    )}
+                    <div className="p-2 rounded bg-slate-900/80 border border-slate-800">
+                      <span className="text-slate-400 block">Negative Images</span>
+                      <span className="text-white font-bold">{validationResult.negative_images}</span>
+                    </div>
+                    <div className="p-2 rounded bg-slate-900/80 border border-slate-800">
+                      <span className="text-slate-400 block">Unannotated</span>
+                      <span className="text-white font-bold">{validationResult.unannotated_images}</span>
+                    </div>
+                  </div>
+
                   {/* Class Distribution Badges */}
                   <div>
                     <div className="text-[11px] font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">
@@ -517,7 +580,7 @@ export const TrainingPage: React.FC = () => {
                           />
                           <span className="font-medium text-white">{cls.name}</span>
                           <span className="px-1.5 py-0.2 rounded bg-slate-800 text-[10px] text-slate-400 font-mono">
-                            {cls.count}
+                            {cls.count} {isDetection ? 'boxes' : 'samples'}
                           </span>
                         </div>
                       ))}
@@ -554,11 +617,13 @@ export const TrainingPage: React.FC = () => {
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
               <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
                 <Boxes className="w-4 h-4 text-indigo-400" />
-                <h2 className="text-sm font-semibold text-white">2. Select Neural Network Backbone</h2>
+                <h2 className="text-sm font-semibold text-white">
+                  2. Select Neural Network Architecture ({isDetection ? 'Detection Models' : 'Classification Models'})
+                </h2>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {models.map((m) => {
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {filteredModels.map((m) => {
                   const isSelected = selectedModelId === m.id;
                   return (
                     <div
@@ -585,7 +650,7 @@ export const TrainingPage: React.FC = () => {
                       <div className="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500">
                         <span>Input: {m.default_input_size}px</span>
                         <span className="text-indigo-400 font-medium">
-                          {m.pretrained_available ? 'Pretrained (ImageNet)' : 'From Scratch'}
+                          {m.pretrained_available ? 'Pretrained' : 'From Scratch'}
                         </span>
                       </div>
                     </div>
@@ -610,7 +675,7 @@ export const TrainingPage: React.FC = () => {
                     type="text"
                     value={runName}
                     onChange={(e) => setRunName(e.target.value)}
-                    placeholder="e.g. resnet18_baseline"
+                    placeholder={isDetection ? 'e.g. fasterrcnn_run1' : 'e.g. resnet18_baseline'}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
                   />
                 </div>
@@ -653,7 +718,7 @@ export const TrainingPage: React.FC = () => {
                     min={1}
                     max={128}
                     value={hyperparams.batch_size}
-                    onChange={(e) => setHyperparams({ ...hyperparams, batch_size: parseInt(e.target.value) || 16 })}
+                    onChange={(e) => setHyperparams({ ...hyperparams, batch_size: parseInt(e.target.value) || (isDetection ? 2 : 16) })}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
                   />
                 </div>
@@ -680,8 +745,8 @@ export const TrainingPage: React.FC = () => {
                     onChange={(e) => setHyperparams({ ...hyperparams, optimizer: e.target.value as any })}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
                   >
-                    <option value="AdamW">AdamW</option>
                     <option value="SGD">SGD (with Momentum)</option>
+                    <option value="AdamW">AdamW</option>
                   </select>
                 </div>
 
@@ -691,12 +756,23 @@ export const TrainingPage: React.FC = () => {
                   </label>
                   <select
                     value={hyperparams.input_size}
-                    onChange={(e) => setHyperparams({ ...hyperparams, input_size: parseInt(e.target.value) || 224 })}
+                    onChange={(e) => setHyperparams({ ...hyperparams, input_size: parseInt(e.target.value) || (isDetection ? 800 : 224) })}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
                   >
-                    <option value={128}>128 × 128</option>
-                    <option value={224}>224 × 224 (Standard)</option>
-                    <option value={256}>256 × 256</option>
+                    {isDetection ? (
+                      <>
+                        <option value={320}>320 × 320 (Lightweight)</option>
+                        <option value={600}>600 × 600</option>
+                        <option value={800}>800 × 800 (Standard)</option>
+                        <option value={1024}>1024 × 1024 (High-Res)</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value={128}>128 × 128</option>
+                        <option value={224}>224 × 224 (Standard)</option>
+                        <option value={256}>256 × 256</option>
+                      </>
+                    )}
                   </select>
                 </div>
 
@@ -711,9 +787,43 @@ export const TrainingPage: React.FC = () => {
                       onChange={(e) => setHyperparams({ ...hyperparams, pretrained: e.target.checked })}
                       className="rounded bg-slate-950 border-slate-700 text-indigo-600 focus:ring-0"
                     />
-                    <span>Transfer Learning (ImageNet)</span>
+                    <span>Transfer Learning</span>
                   </label>
                 </div>
+
+                {isDetection && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">
+                        Confidence Threshold
+                      </label>
+                      <input
+                        type="number"
+                        step={0.05}
+                        min={0.05}
+                        max={0.95}
+                        value={hyperparams.confidence_threshold || 0.5}
+                        onChange={(e) => setHyperparams({ ...hyperparams, confidence_threshold: parseFloat(e.target.value) || 0.5 })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">
+                        IoU Match Threshold
+                      </label>
+                      <input
+                        type="number"
+                        step={0.05}
+                        min={0.1}
+                        max={0.9}
+                        value={hyperparams.iou_threshold || 0.5}
+                        onChange={(e) => setHyperparams({ ...hyperparams, iou_threshold: parseFloat(e.target.value) || 0.5 })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Data Augmentation Toggles */}
@@ -729,16 +839,7 @@ export const TrainingPage: React.FC = () => {
                       onChange={(e) => setHyperparams({ ...hyperparams, horizontal_flip: e.target.checked })}
                       className="rounded bg-slate-950 border-slate-700 text-indigo-600 focus:ring-0"
                     />
-                    <span>Random Horizontal Flip</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={hyperparams.color_jitter}
-                      onChange={(e) => setHyperparams({ ...hyperparams, color_jitter: e.target.checked })}
-                      className="rounded bg-slate-950 border-slate-700 text-indigo-600 focus:ring-0"
-                    />
-                    <span>Color Jitter</span>
+                    <span>Random Horizontal Flip (Synchronized Boxes)</span>
                   </label>
                 </div>
               </div>
@@ -767,7 +868,7 @@ export const TrainingPage: React.FC = () => {
                 ) : (
                   <>
                     <Play className="w-4 h-4 fill-current" />
-                    Start Training Worker
+                    Start {isDetection ? 'Detection' : 'Classification'} Training Worker
                   </>
                 )}
               </button>

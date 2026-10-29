@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Edit2, Tag, AlertCircle, Check } from 'lucide-react';
-import { ProjectLabel, LabelCreate } from '../../../types';
+import { ProjectLabel } from '../../../types';
 import { api } from '../../../services/api';
 
 interface LabelManagerModalProps {
@@ -41,6 +41,26 @@ export const LabelManagerModal: React.FC<LabelManagerModalProps> = ({
   const [editColor, setEditColor] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Automatically focus the input field on mount
+    const timer = setTimeout(() => {
+      inputRef.current?.focus();
+    }, 50);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
+
   const handleCreateLabel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLabelName.trim()) return;
@@ -55,6 +75,9 @@ export const LabelManagerModal: React.FC<LabelManagerModalProps> = ({
       setNewLabelName('');
       setNewLabelDesc('');
       onLabelsUpdated();
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 50);
     } catch (err: any) {
       setError(err.message || 'Failed to create label');
     } finally {
@@ -96,8 +119,11 @@ export const LabelManagerModal: React.FC<LabelManagerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 select-none">
-      <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+      <div 
+        className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col max-h-[85vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
@@ -129,12 +155,15 @@ export const LabelManagerModal: React.FC<LabelManagerModalProps> = ({
           <span className="text-xs font-semibold text-slate-300 block">Add New Class Label</span>
           <div className="flex flex-col sm:flex-row gap-2">
             <input
+              ref={inputRef}
+              autoFocus
               type="text"
               required
               value={newLabelName}
               onChange={(e) => setNewLabelName(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
               placeholder="Class name (e.g. Scratch, Defect, Component)"
-              className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 select-text"
             />
             <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-900 border border-slate-800 rounded-lg">
               <input
@@ -198,7 +227,8 @@ export const LabelManagerModal: React.FC<LabelManagerModalProps> = ({
                       type="text"
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
-                      className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                      onKeyDown={(e) => e.stopPropagation()}
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white select-text"
                     />
                     <button
                       onClick={() => handleSaveEdit(label.id)}

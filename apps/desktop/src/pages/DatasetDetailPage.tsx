@@ -139,7 +139,7 @@ export const DatasetDetailPage: React.FC = () => {
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/annotation')}
+            onClick={() => navigate(`/annotation?project=${dataset.project_id}&dataset=${dataset.id}`)}
             className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md shadow-emerald-600/20 transition-colors"
           >
             <PenTool className="w-3.5 h-3.5" />

@@ -37,6 +37,10 @@ import {
 
 let cachedBackendUrl: string | null = null;
 
+export function getBackendBaseUrlSync(): string {
+  return cachedBackendUrl || 'http://127.0.0.1:8000';
+}
+
 export async function getBackendBaseUrl(): Promise<string> {
   if (cachedBackendUrl) return cachedBackendUrl;
 
@@ -212,6 +216,11 @@ export const api = {
     return request<PaginatedImages>(`/datasets/${id}/images?${params.toString()}`);
   },
 
+  getImageFileUrlSync(datasetId: string, imageId: string): string {
+    const baseUrl = getBackendBaseUrlSync();
+    return `${baseUrl}/api/v1/datasets/${datasetId}/images/${imageId}/file`;
+  },
+
   async getImageFileUrl(datasetId: string, imageId: string): Promise<string> {
     const baseUrl = await getBackendBaseUrl();
     return `${baseUrl}/api/v1/datasets/${datasetId}/images/${imageId}/file`;
@@ -269,9 +278,12 @@ export const api = {
     });
   },
 
-  // Phase 3: Training & Model APIs
-  async getAvailableModels(): Promise<ModelCatalogItem[]> {
-    return request<ModelCatalogItem[]>('/training/models');
+  // Phase 3 & 4: Training & Model APIs
+  async getAvailableModels(task_type?: string): Promise<ModelCatalogItem[]> {
+    const params = new URLSearchParams();
+    if (task_type) params.append('task_type', task_type);
+    const query = params.toString() ? '?' + params.toString() : '';
+    return request<ModelCatalogItem[]>('/training/models' + query);
   },
 
   async validateTrainingDataset(data: DatasetValidationRequest): Promise<DatasetValidationResponse> {
@@ -307,6 +319,18 @@ export const api = {
 
   async cancelTrainingJob(id: string): Promise<TrainingJob> {
     return request<TrainingJob>(`/training/jobs/${id}/cancel`, {
+      method: 'POST',
+    });
+  },
+
+  async resumeTrainingJob(id: string): Promise<TrainingJob> {
+    return request<TrainingJob>(`/training/jobs/${id}/resume`, {
+      method: 'POST',
+    });
+  },
+
+  async evaluateTrainingJob(id: string, split: string = 'val', confThresh: number = 0.5, iouThresh: number = 0.5): Promise<any> {
+    return request<any>(`/training/jobs/${id}/evaluate?split=${split}&conf_thresh=${confThresh}&iou_thresh=${iouThresh}`, {
       method: 'POST',
     });
   },

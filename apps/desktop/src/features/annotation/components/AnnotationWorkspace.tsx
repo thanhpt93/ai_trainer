@@ -108,9 +108,28 @@ export const AnnotationWorkspace: React.FC = () => {
     init();
   }, []);
 
+  // Synchronize URL search params with state
+  useEffect(() => {
+    const paramProj = searchParams.get('project');
+    const paramDs = searchParams.get('dataset');
+    if (paramProj && paramProj !== selectedProjectId) {
+      setSelectedProjectId(paramProj);
+    }
+    if (paramDs && paramDs !== selectedDatasetId) {
+      setSelectedDatasetId(paramDs);
+    }
+  }, [searchParams]);
+
   // 2. When Project Changes: Load datasets & labels
   useEffect(() => {
-    if (!selectedProjectId) return;
+    if (!selectedProjectId) {
+      setDatasets([]);
+      setLabels([]);
+      setSelectedDatasetId('');
+      setImages([]);
+      setCurrentImageUrl('');
+      return;
+    }
     const loadProjectData = async () => {
       try {
         const [dsRes, lblRes] = await Promise.all([
@@ -119,18 +138,32 @@ export const AnnotationWorkspace: React.FC = () => {
         ]);
         setDatasets(dsRes.items);
         setLabels(lblRes.items);
-        if (lblRes.items.length > 0 && !activeLabelId) {
-          setActiveLabelId(lblRes.items[0].id);
+        if (lblRes.items.length > 0) {
+          if (!activeLabelId || !lblRes.items.some((l) => l.id === activeLabelId)) {
+            setActiveLabelId(lblRes.items[0].id);
+          }
+        } else {
+          setActiveLabelId(null);
         }
-        if (dsRes.items.length > 0 && !dsRes.items.some((d) => d.id === selectedDatasetId)) {
-          setSelectedDatasetId(dsRes.items[0].id);
+
+        const paramDs = searchParams.get('dataset');
+        if (paramDs && dsRes.items.some((d) => d.id === paramDs)) {
+          setSelectedDatasetId(paramDs);
+        } else if (dsRes.items.length > 0) {
+          if (!dsRes.items.some((d) => d.id === selectedDatasetId)) {
+            setSelectedDatasetId(dsRes.items[0].id);
+          }
+        } else {
+          setSelectedDatasetId('');
+          setImages([]);
+          setCurrentImageUrl('');
         }
       } catch (err: any) {
         setGlobalError(err.message || 'Error loading project data');
       }
     };
     loadProjectData();
-  }, [selectedProjectId]);
+  }, [selectedProjectId, searchParams]);
 
   // Set default tool depending on project task type
   const activeProject = projects.find((p) => p.id === selectedProjectId);
@@ -198,10 +231,8 @@ export const AnnotationWorkspace: React.FC = () => {
 
     const loadImageData = async () => {
       try {
-        const [url, ann] = await Promise.all([
-          api.getImageFileUrl(selectedDatasetId, selectedImageId),
-          api.getImageAnnotation(selectedImageId),
-        ]);
+        const url = api.getImageFileUrlSync(selectedDatasetId, selectedImageId);
+        const ann = await api.getImageAnnotation(selectedImageId);
         setCurrentImageUrl(url);
         setBoxes(ann.objects || []);
         setSelectedLabelIds(ann.label_ids || []);
@@ -506,7 +537,7 @@ export const AnnotationWorkspace: React.FC = () => {
         }
       }
     },
-  });
+  }, !isLabelManagerOpen && !isExportModalOpen);
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden bg-slate-950 select-none">
@@ -600,7 +631,7 @@ export const AnnotationWorkspace: React.FC = () => {
             onSearchChange={setSearchQuery}
             onPageChange={setCurrentPage}
             onJumpToNextUnannotated={handleJumpToNextUnannotated}
-            getImageThumbnailUrl={(id) => `${api.getImageFileUrl(selectedDatasetId, id)}`}
+            getImageThumbnailUrl={(id) => api.getImageFileUrlSync(selectedDatasetId, id)}
           />
 
           {/* Center Panel: Interactive Canvas */}

@@ -183,7 +183,10 @@ export const ProjectDetailPage: React.FC = () => {
         </div>
 
         <button
-          onClick={() => navigate('/annotation')}
+          onClick={() => {
+            const firstDs = datasets.length > 0 ? `&dataset=${datasets[0].id}` : '';
+            navigate(`/annotation?project=${project.id}${firstDs}`);
+          }}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-600/20 transition-all self-start sm:self-auto"
         >
           <PenTool className="w-4 h-4" />
@@ -317,7 +320,7 @@ export const ProjectDetailPage: React.FC = () => {
                   </span>
                   <div className="flex items-center gap-3">
                     <button
-                      onClick={() => navigate('/annotation')}
+                      onClick={() => navigate(`/annotation?project=${project.id}&dataset=${dataset.id}`)}
                       className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400 hover:text-emerald-300"
                     >
                       <PenTool className="w-3.5 h-3.5" />
