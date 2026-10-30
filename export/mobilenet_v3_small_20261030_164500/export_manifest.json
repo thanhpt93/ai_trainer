@@ -1,0 +1,26 @@
+{
+  "package_name": "mobilenet_v3_small_20261030_164500_mobilenet_v3_small",
+  "exported_files": {
+    "model.onnx": {
+      "sha256": "ea6e600d6d2515d98bf3a618a30700297da5e8980ef544735d7bb73dac513d67",
+      "size_bytes": 6089255
+    },
+    "labels.json": {
+      "sha256": "db0cdfbb307ed18cfd6779129d485c5e65f5eee3ef43b8f83459490717791372",
+      "size_bytes": 327
+    },
+    "preprocessing.json": {
+      "sha256": "c3c4136eeac1f858150709ecb0dafdadc1d2ace7a66fbd8c37e3afcd5aac2b8e",
+      "size_bytes": 276
+    },
+    "validation_report.json": {
+      "sha256": "f81d3068bcb1ca4f864215ed69b1c65fd81538289a48b8158f1b597141e0beac",
+      "size_bytes": 949
+    },
+    "model_metadata.json": {
+      "sha256": "4ecc9f72221bfe3dd7306d469b8e56b8c5f4e7ca26a92fc2e51b77ca3e4fcbc2",
+      "size_bytes": 984
+    }
+  },
+  "verified_with_inference": true
+}

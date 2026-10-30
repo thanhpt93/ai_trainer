@@ -4,6 +4,7 @@ import time
 import json
 import logging
 import argparse
+import shutil
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime, timezone
@@ -451,7 +452,9 @@ def run_worker(config_path_str: str) -> None:
     logger.info(f"Evaluation results ({eval_split_name} split): Accuracy={eval_results['accuracy']*100:.2f}%, F1={eval_results['f1_macro']:.4f}")
 
     # Export ONNX deployment package automatically
-    export_dir = run_dir / "export"
+    export_dir_cfg = cfg.get("export_dir")
+    export_dir = Path(export_dir_cfg) if export_dir_cfg else (run_dir / "export")
+    export_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Exporting model to ONNX package in {export_dir}...")
     try:
         export_resp = ModelCatalogService.export_onnx_package(
@@ -465,6 +468,11 @@ def run_worker(config_path_str: str) -> None:
             validation_report=eval_results,
         )
         logger.info(f"ONNX export succeeded: {export_resp.onnx_file_path} (Verified with inference: {export_resp.verified_with_inference})")
+        if export_dir.resolve() != (run_dir / "export").resolve():
+            try:
+                shutil.copytree(export_dir, run_dir / "export", dirs_exist_ok=True)
+            except Exception as copy_err:
+                logger.warning(f"Failed to copy export to run_dir: {copy_err}")
     except Exception as e:
         logger.error(f"Failed to export ONNX model: {e}")
 

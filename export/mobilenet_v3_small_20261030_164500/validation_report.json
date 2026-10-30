@@ -1,0 +1,51 @@
+{
+  "loss": 1.4262,
+  "accuracy": 0.5,
+  "precision_macro": 0.25,
+  "recall_macro": 0.5,
+  "f1_macro": 0.3333,
+  "per_class_metrics": [
+    {
+      "class_name": "Cat",
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0,
+      "support": 1
+    },
+    {
+      "class_name": "Dog",
+      "precision": 0.5,
+      "recall": 1.0,
+      "f1_score": 0.6667,
+      "support": 1
+    }
+  ],
+  "confusion_matrix": {
+    "labels": [
+      "Cat",
+      "Dog"
+    ],
+    "matrix": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        1
+      ]
+    ]
+  },
+  "misclassified_samples": [
+    {
+      "image_id": "20101e81-5aff-4acf-941a-f0b9e006948f",
+      "relative_path": "cat_02.jpg",
+      "ground_truth": "Cat",
+      "predicted": "Dog",
+      "confidence": 0.9423
+    }
+  ],
+  "total_samples": 2,
+  "evaluated_split": "test",
+  "evaluated_at": "2026-10-30T09:45:26.553855+00:00"
+}

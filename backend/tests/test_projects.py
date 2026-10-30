@@ -108,3 +108,53 @@ def test_delete_project(client):
 
     fetch_res = client.get(f"/api/v1/projects/{project_id}")
     assert fetch_res.status_code == 404
+
+
+def test_delete_project_with_dataset_labels_and_annotations(client, sample_image_dataset):
+    # 1. Create project
+    proj_res = client.post(
+        "/api/v1/projects",
+        json={"name": "Project With Data To Delete", "task_type": "Image Classification"},
+    )
+    assert proj_res.status_code == 201
+    project_id = proj_res.json()["id"]
+
+    # 2. Create labels
+    lbl1 = client.post(f"/api/v1/projects/{project_id}/labels", json={"name": "Cat", "color": "#ef4444"}).json()
+    lbl2 = client.post(f"/api/v1/projects/{project_id}/labels", json={"name": "Dog", "color": "#3b82f6"}).json()
+
+    # 3. Create dataset with immediate scan
+    ds_res = client.post(
+        f"/api/v1/projects/{project_id}/datasets",
+        json={
+            "name": "Test Dataset",
+            "root_path": str(sample_image_dataset),
+            "scan_immediately": True,
+        },
+    )
+    assert ds_res.status_code == 201
+    dataset_id = ds_res.json()["id"]
+
+    # 4. Create an annotation referencing the label
+    imgs = client.get(f"/api/v1/datasets/{dataset_id}/annotated-images").json()
+    assert imgs["total"] > 0
+    img_id = imgs["items"][0]["id"]
+
+    save_res = client.put(
+        f"/api/v1/images/{img_id}/annotation",
+        json={
+            "task_type": "Image Classification",
+            "is_negative": False,
+            "classification_label_ids": [lbl1["id"]],
+            "status": "ANNOTATED",
+        },
+    )
+    assert save_res.status_code == 200
+
+    # 5. Delete project (must succeed without Foreign Key constraint failed error)
+    del_res = client.delete(f"/api/v1/projects/{project_id}")
+    assert del_res.status_code == 204
+
+    # 6. Verify project and dataset are gone
+    assert client.get(f"/api/v1/projects/{project_id}").status_code == 404
+    assert client.get(f"/api/v1/datasets/{dataset_id}").status_code == 404

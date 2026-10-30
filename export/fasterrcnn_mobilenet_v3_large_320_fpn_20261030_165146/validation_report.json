@@ -1,0 +1,35 @@
+{
+  "is_valid": true,
+  "project_id": "c86dad78-bf69-4c8a-972b-7ab246c20d09",
+  "dataset_id": "38e667fa-f934-41e1-ae52-a9dc27ca98e8",
+  "task_type": "Object Detection",
+  "total_images": 10,
+  "valid_annotated_images": 8,
+  "unannotated_images": 2,
+  "invalid_annotations": 0,
+  "negative_images": 0,
+  "missing_files": 0,
+  "classes": [
+    {
+      "index": 1,
+      "label_id": "ffd1fc1b-c692-4592-91da-948f37db63cb",
+      "name": "ID",
+      "color": "#ef4444",
+      "count": 20
+    }
+  ],
+  "class_imbalance_warning": false,
+  "train_count": 6,
+  "val_count": 1,
+  "test_count": 1,
+  "split_manifest_id": "38e667fa-f934-41e1-ae52-a9dc27ca98e8",
+  "total_bounding_boxes": 20,
+  "boxes_per_class": {
+    "ID": 20
+  },
+  "images_per_class": {
+    "ID": 8
+  },
+  "errors": [],
+  "warnings": []
+}

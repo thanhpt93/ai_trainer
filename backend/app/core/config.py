@@ -47,6 +47,22 @@ class Settings(BaseModel):
     SCAN_BATCH_SIZE: int = 500
 
     @property
+    def PROJECT_ROOT(self) -> Path:
+        """Root directory of the application / codebase repository."""
+        return Path(__file__).resolve().parent.parent.parent.parent
+
+    @property
+    def EXPORT_DIR(self) -> Path:
+        """Default directory for exported models, located directly in the project directory."""
+        override = os.environ.get("NOVA_EXPORT_DIR")
+        if override:
+            export_path = Path(override)
+        else:
+            export_path = self.PROJECT_ROOT / "export"
+        export_path.mkdir(parents=True, exist_ok=True)
+        return export_path
+
+    @property
     def DATABASE_PATH(self) -> Path:
         return self.APP_DATA_DIR / "nova_trainer.db"
 

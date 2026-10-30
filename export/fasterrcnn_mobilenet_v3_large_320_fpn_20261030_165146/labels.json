@@ -1,0 +1,24 @@
+{
+  "class_count": 1,
+  "total_classes_with_background": 2,
+  "classes": [
+    {
+      "index": 0,
+      "label_id": "__background__",
+      "name": "__background__",
+      "color": "#64748b",
+      "is_background": true
+    },
+    {
+      "index": 1,
+      "label_id": "ffd1fc1b-c692-4592-91da-948f37db63cb",
+      "name": "ID",
+      "color": "#ef4444",
+      "is_background": false
+    }
+  ],
+  "background_class": {
+    "index": 0,
+    "name": "__background__"
+  }
+}

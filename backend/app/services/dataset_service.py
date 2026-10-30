@@ -4,7 +4,16 @@ from typing import List, Tuple, Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
-from backend.app.domain.models import Project, Dataset, ImageRecord
+from backend.app.domain.models import (
+    Project,
+    Dataset,
+    ImageRecord,
+    ImageAnnotation,
+    ClassificationAnnotation,
+    ObjectAnnotation,
+    TrainingJob,
+    ModelArtifact,
+)
 from backend.app.schemas.dataset import (
     DatasetCreate,
     DatasetUpdate,
@@ -51,16 +60,6 @@ class DatasetService:
         return dataset
 
     @classmethod
-    def get_dataset_by_id(cls, db: Session, dataset_id: str) -> Dataset:
-        dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-        if not dataset:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Dataset with ID '{dataset_id}' not found.",
-            )
-        return dataset
-
-    @classmethod
     def get_datasets_by_project(
         cls,
         db: Session,
@@ -68,7 +67,7 @@ class DatasetService:
         skip: int = 0,
         limit: int = 100,
     ) -> Tuple[List[Dataset], int]:
-        # Verify project exists
+        # Validate project exists
         ProjectService.get_project_by_id(db, project_id)
 
         query = db.query(Dataset).filter(Dataset.project_id == project_id)
@@ -77,7 +76,7 @@ class DatasetService:
         return items, total
 
     @classmethod
-    def list_all_datasets(
+    def get_all_datasets(
         cls,
         db: Session,
         skip: int = 0,
@@ -87,6 +86,16 @@ class DatasetService:
         total = query.count()
         items = query.order_by(Dataset.created_at.desc()).offset(skip).limit(limit).all()
         return items, total
+
+    @classmethod
+    def get_dataset_by_id(cls, db: Session, dataset_id: str) -> Dataset:
+        dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+        if not dataset:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset with ID '{dataset_id}' not found.",
+            )
+        return dataset
 
     @classmethod
     def update_dataset(cls, db: Session, dataset_id: str, dataset_in: DatasetUpdate) -> Dataset:
@@ -104,7 +113,25 @@ class DatasetService:
     @classmethod
     def delete_dataset(cls, db: Session, dataset_id: str) -> None:
         dataset = cls.get_dataset_by_id(db, dataset_id)
-        # Never delete original image files on disk
+
+        # 1. Clean up child annotations and records cleanly
+        image_ann_ids = [
+            ia.id for ia in db.query(ImageAnnotation.id).filter(ImageAnnotation.dataset_id == dataset.id).all()
+        ]
+        if image_ann_ids:
+            db.query(ClassificationAnnotation).filter(
+                ClassificationAnnotation.image_annotation_id.in_(image_ann_ids)
+            ).delete(synchronize_session=False)
+            db.query(ObjectAnnotation).filter(
+                ObjectAnnotation.image_annotation_id.in_(image_ann_ids)
+            ).delete(synchronize_session=False)
+
+        db.query(ImageAnnotation).filter(ImageAnnotation.dataset_id == dataset.id).delete(synchronize_session=False)
+        db.query(ImageRecord).filter(ImageRecord.dataset_id == dataset.id).delete(synchronize_session=False)
+        db.query(TrainingJob).filter(TrainingJob.dataset_id == dataset.id).delete(synchronize_session=False)
+        db.query(ModelArtifact).filter(ModelArtifact.dataset_id == dataset.id).delete(synchronize_session=False)
+
+        # 2. Delete dataset record (never delete original raw image files on disk)
         db.delete(dataset)
         db.commit()
 
@@ -131,6 +158,7 @@ class DatasetService:
         page: int = 1,
         page_size: int = 50,
     ) -> PaginatedImagesResponse:
+        # Validate dataset exists
         cls.get_dataset_by_id(db, dataset_id)
 
         query = db.query(ImageRecord).filter(ImageRecord.dataset_id == dataset_id)
@@ -138,14 +166,13 @@ class DatasetService:
             query = query.filter(ImageRecord.is_valid == is_valid)
 
         total = query.count()
-        total_pages = max(1, math.ceil(total / page_size)) if total > 0 else 1
-        page = max(1, min(page, total_pages))
+        total_pages = max(1, math.ceil(total / page_size))
         offset = (page - 1) * page_size
 
-        records = query.order_by(ImageRecord.relative_path.asc()).offset(offset).limit(page_size).all()
+        items = query.order_by(ImageRecord.created_at.asc()).offset(offset).limit(page_size).all()
 
         return PaginatedImagesResponse(
-            items=[ImageRecordResponse.model_validate(r) for r in records],
+            items=[ImageRecordResponse.model_validate(img) for img in items],
             total=total,
             page=page,
             page_size=page_size,

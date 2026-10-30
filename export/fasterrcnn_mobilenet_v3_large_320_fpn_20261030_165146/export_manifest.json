@@ -1,0 +1,31 @@
+{
+  "package_name": "fasterrcnn_mobilenet_v3_large_320_fpn_20261030_165146",
+  "task_type": "OBJECT_DETECTION",
+  "exported_files": {
+    "model.onnx": {
+      "sha256": "d55618767cf51ad525d2718efdb1c6b7f8570531e8404fd96f2f61f8c2ad7a27",
+      "size_bytes": 76043965
+    },
+    "labels.json": {
+      "sha256": "5e8dc9089affb5ac1764f4fcf9ee857aaee7d13fcdbc3eda44b2db9dd61e7882",
+      "size_bytes": 493
+    },
+    "preprocessing.json": {
+      "sha256": "a507ffa881e7e226dadbbe612d90be7d40f920cba48576661c95a76c605fc6e7",
+      "size_bytes": 314
+    },
+    "postprocessing.json": {
+      "sha256": "0c43301723741d337f6f416c4377afb2d111e88e5e993770d2de2b4aecc89a9b",
+      "size_bytes": 398
+    },
+    "validation_report.json": {
+      "sha256": "97dcf759e37231bdbc7fb9c9643dacf18394a8cef40241a52b9c8118cfe9f828",
+      "size_bytes": 831
+    },
+    "model_metadata.json": {
+      "sha256": "813bdee6ff8d7d2088d8c85e7a23a8f0501cad18a0e2655a7d2dcce6c74a4dea",
+      "size_bytes": 1809
+    }
+  },
+  "verified_with_inference": true
+}

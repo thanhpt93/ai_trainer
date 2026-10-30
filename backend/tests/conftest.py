@@ -2,6 +2,13 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+
+# Ensure all tests run against an isolated temporary app data directory and test export directory
+_test_appdata = tempfile.mkdtemp(prefix="nova_test_appdata_")
+_test_export = tempfile.mkdtemp(prefix="nova_test_export_")
+os.environ.setdefault("NOVA_APP_DATA_DIR", _test_appdata)
+os.environ.setdefault("NOVA_EXPORT_DIR", _test_export)
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine

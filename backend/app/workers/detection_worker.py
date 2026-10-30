@@ -4,6 +4,7 @@ import time
 import json
 import logging
 import argparse
+import shutil
 import math
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
@@ -480,7 +481,9 @@ def run_worker():
             export_model = ModelCatalogService.build_model(arch, num_classes=num_classes, pretrained=False)
             export_model.load_state_dict(cp["model_state_dict"])
 
-            export_dir = run_dir / "export"
+            export_dir_cfg = cfg.get("export_dir")
+            export_dir = Path(export_dir_cfg) if export_dir_cfg else (run_dir / "export")
+            export_dir.mkdir(parents=True, exist_ok=True)
             export_resp = ModelCatalogService.export_detection_onnx_package(
                 model=export_model,
                 output_dir=export_dir,
@@ -491,6 +494,11 @@ def run_worker():
                 validation_report=cfg.get("validation_report"),
             )
             logger.info(f"Model exported successfully: {export_resp.onnx_file_path} (verified: {export_resp.verified_with_inference})")
+            if export_dir.resolve() != (run_dir / "export").resolve():
+                try:
+                    shutil.copytree(export_dir, run_dir / "export", dirs_exist_ok=True)
+                except Exception as copy_err:
+                    logger.warning(f"Failed to copy export to run_dir: {copy_err}")
     except Exception as e:
         logger.warning(f"Automatic ONNX export warning: {e}")
 

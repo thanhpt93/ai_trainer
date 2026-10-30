@@ -34,7 +34,7 @@ class ExportService:
             export_dir = Path(req.output_dir.strip()).resolve()
         else:
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-            export_dir = settings.APP_DATA_DIR / "exports" / f"{dataset.name}_{req.format.value}_{timestamp}"
+            export_dir = settings.EXPORT_DIR / f"{dataset.name}_{req.format.value}_{timestamp}"
 
         export_dir.mkdir(parents=True, exist_ok=True)
 

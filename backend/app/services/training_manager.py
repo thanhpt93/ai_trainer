@@ -3,6 +3,7 @@ import sys
 import json
 import time
 import subprocess
+import shutil
 import base64
 import io
 from pathlib import Path
@@ -38,6 +39,7 @@ from backend.app.schemas.model_artifact import (
     ExportModelRequest,
     ExportModelResponse,
 )
+from backend.app.services.project_service import sanitize_filename
 from backend.app.services.classification_dataset_adapter import ClassificationDatasetAdapter
 from backend.app.adapters.detection_dataset_adapter import DetectionDatasetAdapter
 from backend.app.adapters.detection_evaluator import DetectionEvaluator
@@ -194,11 +196,16 @@ class TrainingManager:
         job.checkpoint_dir = str(run_dir)
         job.log_file_path = str(run_dir / "train.log")
 
+        job_export_name = sanitize_filename(job.name) if job.name else f"job_{job.id[:8]}"
+        project_export_dir = settings.EXPORT_DIR / job_export_name
+        project_export_dir.mkdir(parents=True, exist_ok=True)
+
         # Prepare worker config payload
         worker_cfg = {
             "job_id": job.id,
             "name": job.name,
             "run_dir": str(run_dir),
+            "export_dir": str(project_export_dir),
             "model_architecture": hparams.model_architecture,
             "pretrained": hparams.pretrained,
             "device": hparams.device,
@@ -761,14 +768,28 @@ class TrainingManager:
             )
 
         run_dir = Path(job.checkpoint_dir)
-        export_dir = run_dir / "export"
+        job_folder = sanitize_filename(job.name) if job.name else f"job_{job.id[:8]}"
+        if getattr(req, "output_dir", None) and req.output_dir.strip():
+            export_dir = Path(req.output_dir.strip()).resolve()
+        else:
+            export_dir = settings.EXPORT_DIR / job_folder
+        export_dir.mkdir(parents=True, exist_ok=True)
+
         onnx_file = export_dir / "model.onnx"
         manifest_file = export_dir / "export_manifest.json"
 
         is_detection = "Detection" in job.task_type or ModelCatalogService.is_detection_model(job.model_architecture or "")
         task_str = "Object Detection" if is_detection else "Image Classification"
 
-        # If already exported in worker, return manifest data
+        # Check if already exported in worker (either in export_dir or run_dir / "export")
+        worker_export = run_dir / "export"
+        if not onnx_file.exists() and (worker_export / "model.onnx").exists():
+            try:
+                shutil.copytree(worker_export, export_dir, dirs_exist_ok=True)
+            except Exception:
+                pass
+
+        # If already exported, return manifest data
         if onnx_file.exists() and manifest_file.exists():
             with open(manifest_file, "r", encoding="utf-8") as f:
                 m_data = json.load(f)
@@ -795,6 +816,10 @@ class TrainingManager:
                     is_exported=True,
                 )
                 db.add(art)
+                db.commit()
+            else:
+                art.artifact_path = str(onnx_file)
+                art.metadata_path = str(export_dir / "model_metadata.json")
                 db.commit()
 
             return ExportModelResponse(
@@ -836,6 +861,13 @@ class TrainingManager:
             dynamic_batch=req.dynamic_batch,
             validation_report=eval_report,
         )
+
+        # Mirror to run_dir / "export" as well
+        if export_dir.resolve() != (run_dir / "export").resolve():
+            try:
+                shutil.copytree(export_dir, run_dir / "export", dirs_exist_ok=True)
+            except Exception:
+                pass
 
         art = ModelArtifact(
             name=job.name or f"model_{job.id[:8]}",

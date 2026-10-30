@@ -1,0 +1,17 @@
+{
+  "class_count": 2,
+  "classes": [
+    {
+      "index": 0,
+      "label_id": "6dd63b72-706b-4714-bc3a-cd9aca2ad3e6",
+      "name": "Cat",
+      "color": "#ef4444"
+    },
+    {
+      "index": 1,
+      "label_id": "f64e28fa-036f-4414-be8b-12c36dd9a2ea",
+      "name": "Dog",
+      "color": "#3b82f6"
+    }
+  ]
+}

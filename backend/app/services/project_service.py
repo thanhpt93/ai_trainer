@@ -6,7 +6,17 @@ from sqlalchemy import func
 from fastapi import HTTPException, status
 
 from backend.app.core.config import settings
-from backend.app.domain.models import Project, Dataset
+from backend.app.domain.models import (
+    Project,
+    Dataset,
+    ImageRecord,
+    ImageAnnotation,
+    ClassificationAnnotation,
+    ObjectAnnotation,
+    TrainingJob,
+    ModelArtifact,
+    ProjectLabel,
+)
 from backend.app.schemas.project import ProjectCreate, ProjectUpdate
 from backend.app.services.path_validator import PathValidator
 
@@ -132,6 +142,60 @@ class ProjectService:
     @classmethod
     def delete_project(cls, db: Session, project_id: str) -> None:
         project = cls.get_project_by_id(db, project_id)
-        # Note: We do NOT delete the underlying user filesystem folders, preserving original datasets.
+
+        # 1. Terminate any active background training worker processes for this project
+        running_jobs = (
+            db.query(TrainingJob)
+            .filter(
+                TrainingJob.project_id == project.id,
+                TrainingJob.status.in_(["RUNNING", "PREPARING", "QUEUED"]),
+            )
+            .all()
+        )
+        for rj in running_jobs:
+            if rj.pid:
+                try:
+                    import psutil
+                    proc = psutil.Process(rj.pid)
+                    proc.kill()
+                except Exception:
+                    pass
+            rj.status = "CANCELLED"
+
+        # 2. Find all datasets under this project
+        dataset_ids = [d.id for d in db.query(Dataset.id).filter(Dataset.project_id == project.id).all()]
+        if dataset_ids:
+            # Query all image annotations under these datasets
+            image_ann_ids = [
+                ia.id
+                for ia in db.query(ImageAnnotation.id).filter(ImageAnnotation.dataset_id.in_(dataset_ids)).all()
+            ]
+            if image_ann_ids:
+                # Delete classification and object annotations first to resolve SQLite ON DELETE RESTRICT on project_labels
+                db.query(ClassificationAnnotation).filter(
+                    ClassificationAnnotation.image_annotation_id.in_(image_ann_ids)
+                ).delete(synchronize_session=False)
+                db.query(ObjectAnnotation).filter(
+                    ObjectAnnotation.image_annotation_id.in_(image_ann_ids)
+                ).delete(synchronize_session=False)
+
+            db.query(ImageAnnotation).filter(ImageAnnotation.dataset_id.in_(dataset_ids)).delete(
+                synchronize_session=False
+            )
+            db.query(ImageRecord).filter(ImageRecord.dataset_id.in_(dataset_ids)).delete(synchronize_session=False)
+
+        # 3. Clean up model artifacts associated with the project
+        db.query(ModelArtifact).filter(ModelArtifact.project_id == project.id).delete(synchronize_session=False)
+
+        # 4. Clean up training jobs
+        db.query(TrainingJob).filter(TrainingJob.project_id == project.id).delete(synchronize_session=False)
+
+        # 5. Clean up datasets
+        db.query(Dataset).filter(Dataset.project_id == project.id).delete(synchronize_session=False)
+
+        # 6. Clean up project labels (safe now as child annotations are already deleted)
+        db.query(ProjectLabel).filter(ProjectLabel.project_id == project.id).delete(synchronize_session=False)
+
+        # 7. Delete the project record (original raw image files on disk are preserved)
         db.delete(project)
         db.commit()

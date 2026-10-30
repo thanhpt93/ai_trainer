@@ -63,6 +63,7 @@ class ExportModelRequest(BaseModel):
     format: str = Field(default="ONNX")
     input_size: int = Field(default=224)
     dynamic_batch: bool = Field(default=True)
+    output_dir: Optional[str] = Field(default=None, description="Custom export directory, defaults to project root / export")
 
 
 class ExportModelResponse(BaseModel):
